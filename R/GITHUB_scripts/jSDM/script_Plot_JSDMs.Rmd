@@ -1,0 +1,640 @@
+---
+title: "Plots_JSDMs"
+author: "Aimara Planillo"
+date: "15/04/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Plotting the JSDMs results
+
+```{r packages and workspace}
+source(paste0(getwd(), "/3_scripts/source_file_lib.R"))
+source(paste0(getwd(), "/3_scripts/source_file_wd.R"))
+```
+
+
+### Load data
+```{r}
+# Detection
+det_file <- list.files(det_results_wd, pattern = "ModelFrame")
+det_betas <- read.csv(file.path(det_results_wd, det_file))
+
+# Use intensity
+use_file <- list.files(use_results_wd, pattern = "ModelFrame")
+use_betas <- read.csv(file.path(use_results_wd, use_file))
+
+# Nocturnality
+noct_file <- list.files(nocturnality2_results_wd, pattern = "ModelFrame")
+noct_betas <- read.csv(file.path(nocturnality2_results_wd, noct_file))
+```
+
+
+### Detection forest plot
+```{r}
+# Correct variable name and set variables in the correct order for plotting
+det_ModelFrame <- det_betas %>%
+  mutate(Variable = case_when(
+    Variable == "Dist_B" ~ "Dist_CityBorder",
+    TRUE ~ as.character(Variable))) %>%
+  mutate(Variable = fct_relevel(Variable, c("Intercept",  "Spring", "Covid",
+              "No_compost", "Open_compost", "Garden_size", "Local_tree_cover", "Fence_height",
+              "Human_population", "Impervious_surface", "Noise", "Tree_cover", "Dist_CityBorder", 
+               "Cat"))) %>%
+  mutate(Variable = fct_rev(Variable))
+ 
+det_ModelFrame$Variable
+
+# variables with CRI not overlapping 0
+det_ModelFrame <- det_ModelFrame %>%
+  mutate(significant = case_when(
+    CI_low < 0 & CI_high < 0 ~ "Yes",
+    CI_low > 0 & CI_high > 0 ~ "Yes", 
+    TRUE ~ "No")) 
+
+
+# Remove intercept not to plot it
+det_ModelFrame <- det_ModelFrame %>% 
+  filter(Variable != "Intercept")
+
+# Plot
+zp1 <- ggplot(det_ModelFrame, aes(group = Species, colour = Species)) + 
+  geom_hline(yintercept = 0, colour = gray(1/2), lty = 2) + 
+  geom_linerange(aes(x = Variable, ymin = CI_low,
+                                ymax = CI_high, fill = significant),
+                            lwd = 0.8, position = position_dodge(width = 1.2/2)) + 
+  geom_linerange(aes(x = Variable, ymin = Q_25,
+                                ymax = Q_75, fill = significant),
+                            lwd = 1.5, position = position_dodge(width = 1.2/2)) + 
+  geom_pointrange(aes(x = Variable, y = Coefficient, ymin = Q_25,
+                                 ymax = Q_75, fill = significant),
+                             lwd = 1/2, shape = 21, position = position_dodge(width = 1.2/2)) +
+  scale_fill_manual(values = c("White", "black"))+
+  # scale_y_continuous(limits = c(-5, 3)) +
+  coord_flip(ylim=c(-2, 1)) + 
+  scale_colour_viridis_d(option = "viridis", begin = 0.1, end = 0.9, 
+                         guide = guide_legend(reverse = TRUE)) +
+  theme(
+    panel.background = element_rect(fill = NA),
+    panel.grid.major = element_blank(), 
+    axis.line = element_line(colour = "black"), 
+    axis.text = element_text(size = 12), 
+    axis.title = element_text(size = 14, face = "bold")) +
+    ggtitle("Detection of Urban Mesocarnivores")
+
+
+zp1
+
+ggsave(plot = zp1, paste0(plots_wd, "/DET_betacoefs_5seasons.png"), 
+       width = 9, height = 8, dpi = 600)
+```
+
+## Add boxes to plot
+```{r}
+# make transparent zp1 plot and remove title
+zp1 <- zp1 +
+  theme(plot.background = element_rect(fill = "transparent", colour = NA), 
+        panel.grid = element_line(colour = "transparent")) +
+  ggtitle("")
+  
+
+# creating just a plot with the boxes and text to overlap
+zp2 <- 
+ggplot(det_ModelFrame, aes(y = Variable, x = CI_high)) + 
+  geom_blank() +
+  theme(
+    panel.background = element_rect(fill = NA),
+    panel.grid.major = element_blank(), 
+    # axis.line = element_line(colour = "black"),
+    # axis.text = element_text(),
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(), 
+    plot.margin = unit(c(1, 3, 2, 1), "cm")) + # add margin for the other plot 
+  annotate("rect", xmin = -4, xmax = 8, ymin = 0.6, ymax = 1.4,
+           fill = "red", alpha = .1) +
+  annotate("text", label = "Cats", fontface = "italic", size = 5,
+           x = -3.5, y = 0.6, vjust = -0.5, hjust = 0) +
+  annotate("rect", xmin = -4, xmax = 8, ymin = 1.6, ymax = 7.2,
+           fill = "grey", alpha = .1) +
+  annotate("text", label = "Urban", fontface = "italic", size = 5,
+           x = -3.5, y = 4,5, vjust = -0.5, hjust = 0) +
+  annotate("rect", xmin = -4, xmax = 8, ymin = 7.4, ymax = 12.8,
+           fill = "darkgreen", alpha = .1) +
+  annotate("text", label = "Garden", fontface = "italic", size = 5,
+           x = -3.5, y = 10, vjust = -0.5, hjust = 0) +
+  annotate("rect", xmin = -4, xmax = 8, ymin = 13, ymax = 15,
+           fill = "darkblue", alpha = .1) +
+  annotate("text", label = "Season/Covid", fontface = "italic", size = 5,
+           x = -3.5, y = 13.8, vjust = -0.5, hjust = 0)
+  
+  
+# transform into grob object to overlap
+zp1_grob <- ggplotGrob(zp1)
+
+# Plot on top of each other
+combined_plot <- zp2 + annotation_custom(grob = zp1_grob, 
+                    xmin = -2.3, xmax = 10, 
+                       ymin = -0.8, ymax = 16)
+
+# save
+ggsave(plot = combined_plot, paste0(plots_wd, "/DET_betacoefs_5seasons_boxes.png"), 
+       width = 9, height = 8, dpi = 600)
+```
+
+
+### USE intensity forest plot
+```{r}
+# Correct variable name and set variables in the correct order for plotting
+use_ModelFrame <- use_betas %>%
+  mutate(Variable = case_when(
+    Variable == "Dist_B" ~ "Dist_CityBorder",
+    TRUE ~ as.character(Variable))) %>%
+  mutate(Variable = fct_relevel(Variable, c("Intercept",  "Spring", "Covid",
+              "No_compost", "Open_compost", "Garden_size", "Local_tree_cover", "Fence_height",
+              "Human_population", "Impervious_surface", "Noise", "Tree_cover", "Dist_CityBorder", 
+               "Cat"))) %>%
+  mutate(Variable = fct_rev(Variable))
+
+use_ModelFrame$Variable
+ 
+# variables with CRI not overlapping 0
+use_ModelFrame <- use_ModelFrame %>%
+  mutate(significant = case_when(
+    CI_low < 0 & CI_high < 0 ~ "Yes",
+    CI_low > 0 & CI_high > 0 ~ "Yes", 
+    TRUE ~ "No")) 
+
+
+# Remove intercept not to plot it
+use_ModelFrame <- use_ModelFrame %>% 
+  filter(Variable != "Intercept")
+
+# Plot
+zp1_use <- ggplot(use_ModelFrame, aes(group = Species, colour = Species)) + 
+  geom_hline(yintercept = 0, colour = gray(1/2), lty = 2) + 
+  geom_linerange(aes(x = Variable, ymin = CI_low,
+                                ymax = CI_high, fill = significant),
+                            lwd = 0.8, position = position_dodge(width = 1.2/2)) + 
+  geom_linerange(aes(x = Variable, ymin = Q_25,
+                                ymax = Q_75, fill = significant),
+                            lwd = 1.5, position = position_dodge(width = 1.2/2)) + 
+  geom_pointrange(aes(x = Variable, y = Coefficient, ymin = Q_25,
+                                 ymax = Q_75, fill = significant),
+                             lwd = 1/2, shape = 21, position = position_dodge(width = 1.2/2)) +
+  scale_fill_manual(values = c("White", "black"))+
+  # scale_y_continuous(limits = c(-5, 3)) +
+  coord_flip(ylim=c(-1, 1)) + 
+  scale_colour_viridis_d(option = "viridis", begin = 0.1, end = 0.9, 
+                         guide = guide_legend(reverse = TRUE)) +
+  theme(
+    panel.background = element_rect(fill = NA),
+    panel.grid.major = element_blank(), 
+    axis.line = element_line(colour = "black"), 
+    axis.text = element_text(size = 12), 
+    axis.title = element_text(size = 14, face = "bold")) +
+    ggtitle("Use intensity by Urban Mesocarnivores")
+
+
+zp1_use
+
+ggsave(plot = zp1_use, paste0(plots_wd, "/USE_betacoefs_5seasons.png"), 
+       width = 9, height = 8, dpi = 600)
+```
+
+## Add boxes to plot
+```{r}
+# make transparent zp1 plot and remove title
+zp1_use <- zp1_use +
+  theme(plot.background = element_rect(fill = "transparent", colour = NA), 
+        panel.grid = element_line(colour = "transparent")) +
+  ggtitle("")
+  
+
+# creating just a plot with the boxes and text to overlap
+zp2_use <- 
+ggplot(use_ModelFrame, aes(y = Variable, x = CI_high)) + 
+  geom_blank() +
+  theme(
+    panel.background = element_rect(fill = NA),
+    panel.grid.major = element_blank(), 
+    # axis.line = element_line(colour = "black"),
+    # axis.text = element_text(),
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(), 
+    plot.margin = unit(c(1, 3, 2, 1), "cm")) + # add margin for the other plot 
+  annotate("rect", xmin = -4, xmax = 8, ymin = 0.6, ymax = 1.4,
+           fill = "red", alpha = .1) +
+  annotate("text", label = "Cats", fontface = "italic", size = 5,
+           x = -3.5, y = 0.6, vjust = -0.5, hjust = 0) +
+  annotate("rect", xmin = -4, xmax = 8, ymin = 1.6, ymax = 7.2,
+           fill = "grey", alpha = .1) +
+  annotate("text", label = "Urban", fontface = "italic", size = 5,
+           x = -3.5, y = 4,5, vjust = -0.5, hjust = 0) +
+  annotate("rect", xmin = -4, xmax = 8, ymin = 7.4, ymax = 12.8,
+           fill = "darkgreen", alpha = .1) +
+  annotate("text", label = "Garden", fontface = "italic", size = 5,
+           x = -3.5, y = 10, vjust = -0.5, hjust = 0) +
+  annotate("rect", xmin = -4, xmax = 8, ymin = 13, ymax = 15,
+           fill = "darkblue", alpha = .1) +
+  annotate("text", label = "Season/Covid", fontface = "italic", size = 5,
+           x = -3.5, y = 13.8, vjust = -0.5, hjust = 0)
+  
+  
+# transform into grob object to overlap
+zp1_use_grob <- ggplotGrob(zp1_use)
+
+# Plot on top of each other
+combined_use_plot <- zp2 + annotation_custom(grob = zp1_use_grob, 
+                    xmin = -2.3, xmax = 10, 
+                       ymin = -0.8, ymax = 16)
+
+# save
+ggsave(plot = combined_use_plot, paste0(plots_wd, "/USE_betacoefs_5seasons_boxes.png"), 
+       width = 9, height = 8, dpi = 600)
+```
+
+
+### NOCTURNALITY forest plot
+```{r}
+# Correct variable name and set variables in the correct order for plotting
+noct_ModelFrame <- noct_betas %>%
+  mutate(Variable = case_when(
+    Variable == "Dist_B" ~ "Dist_CityBorder",
+    TRUE ~ as.character(Variable))) %>%
+  mutate(Variable = fct_relevel(Variable, c("Intercept",  "Spring", "Covid",
+              "No_compost", "Open_compost", "Garden_size", "Local_tree_cover", "Fence_height",
+              "Human_population", "Impervious_surface", "Noise", "Tree_cover", "Dist_CityBorder", 
+               "Cat"))) %>%
+  mutate(Variable = fct_rev(Variable))
+
+noct_ModelFrame$Variable
+ 
+# variables with CRI not overlapping 0
+noct_ModelFrame <- noct_ModelFrame %>%
+  mutate(significant = case_when(
+    CI_low < 0 & CI_high < 0 ~ "Yes",
+    CI_low > 0 & CI_high > 0 ~ "Yes", 
+    TRUE ~ "No")) 
+
+
+# Remove intercept not to plot it
+noct_ModelFrame <- noct_ModelFrame %>% 
+  filter(Variable != "Intercept")
+
+# Plot
+zp1_noct <- ggplot(noct_ModelFrame, aes(group = Species, colour = Species)) + 
+  geom_hline(yintercept = 0, colour = gray(1/2), lty = 2) + 
+  geom_linerange(aes(x = Variable, ymin = CI_low,
+                                ymax = CI_high, fill = significant),
+                            lwd = 0.8, position = position_dodge(width = 1.2/2)) + 
+  geom_linerange(aes(x = Variable, ymin = Q_25,
+                                ymax = Q_75, fill = significant),
+                            lwd = 1.5, position = position_dodge(width = 1.2/2)) + 
+  geom_pointrange(aes(x = Variable, y = Coefficient, ymin = Q_25,
+                                 ymax = Q_75, fill = significant),
+                             lwd = 1/2, shape = 21, position = position_dodge(width = 1.2/2)) +
+  scale_fill_manual(values = c("White", "black"))+
+  # scale_y_continuous(limits = c(-5, 3)) +
+  coord_flip(ylim=c(-1, 1)) + 
+  scale_colour_viridis_d(option = "viridis", begin = 0.1, end = 0.9, 
+                         guide = guide_legend(reverse = TRUE)) +
+  theme(
+    panel.background = element_rect(fill = NA),
+    panel.grid.major = element_blank(), 
+    axis.line = element_line(colour = "black"), 
+    axis.text = element_text(size = 12), 
+    axis.title = element_text(size = 14, face = "bold")) +
+    ggtitle("Nocturnality of Urban Mesocarnivores")
+
+
+zp1_noct
+
+ggsave(plot = zp1_noct, paste0(plots_wd, "/NOCT_betacoefs_5seasons.png"), 
+       width = 9, height = 8, dpi = 600)
+```
+
+## Add boxes to plot
+```{r}
+# make transparent zp1 plot and remove title
+zp1_noct <- zp1_noct +
+  theme(plot.background = element_rect(fill = "transparent", colour = NA), 
+        panel.grid = element_line(colour = "transparent")) +
+  ggtitle("")
+  
+
+# creating just a plot with the boxes and text to overlap
+zp2_noct <- 
+ggplot(noct_ModelFrame, aes(y = Variable, x = CI_high)) + 
+  geom_blank() +
+  theme(
+    panel.background = element_rect(fill = NA),
+    panel.grid.major = element_blank(), 
+    # axis.line = element_line(colour = "black"),
+    # axis.text = element_text(),
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(), 
+    plot.margin = unit(c(1, 3, 2, 1), "cm")) + # add margin for the other plot 
+  annotate("rect", xmin = -4, xmax = 8, ymin = 0.6, ymax = 1.4,
+           fill = "red", alpha = .1) +
+  annotate("text", label = "Cats", fontface = "italic", size = 5,
+           x = -3.5, y = 0.6, vjust = -0.5, hjust = 0) +
+  annotate("rect", xmin = -4, xmax = 8, ymin = 1.6, ymax = 7.2,
+           fill = "grey", alpha = .1) +
+  annotate("text", label = "Urban", fontface = "italic", size = 5,
+           x = -3.5, y = 4,5, vjust = -0.5, hjust = 0) +
+  annotate("rect", xmin = -4, xmax = 8, ymin = 7.4, ymax = 12.8,
+           fill = "darkgreen", alpha = .1) +
+  annotate("text", label = "Garden", fontface = "italic", size = 5,
+           x = -3.5, y = 10, vjust = -0.5, hjust = 0) +
+  annotate("rect", xmin = -4, xmax = 8, ymin = 13, ymax = 15,
+           fill = "darkblue", alpha = .1) +
+  annotate("text", label = "Season/Covid", fontface = "italic", size = 5,
+           x = -3.5, y = 13.8, vjust = -0.5, hjust = 0)
+  
+  
+# transform into grob object to overlap
+zp1_noct_grob <- ggplotGrob(zp1_noct)
+
+# Plot on top of each other
+combined_noct_plot <- zp2_noct + annotation_custom(grob = zp1_noct_grob, 
+                    xmin = -2.3, xmax = 10, 
+                       ymin = -0.8, ymax = 16)
+
+# save
+ggsave(plot = combined_noct_plot, paste0(plots_wd, "/NOCT_betacoefs_5seasons_boxes.png"), 
+       width = 9, height = 8, dpi = 600)
+```
+
+
+
+
+
+# Variance partitioning
+
+We are going to plot it manually, so we can plot species names and chosen colors.
+
+### Load variance partitioning data
+```{r}
+# Varpart data
+
+# Detection
+VP_det <- readRDS(paste0(det_results_wd, "/Varpart_DET_5seasons.rds"))
+VP_det  
+
+# Use intensity
+VP_use <- readRDS(paste0(use_results_wd, "/Varpart_USE_5seasons.rds"))
+VP_use  
+
+# Nocturnality
+VP_noct <- readRDS(paste0(nocturnality2_results_wd, "/Varpart_NOCT_5seasons.rds"))
+VP_noct
+```
+
+
+
+### Detection model var part
+```{r, message=FALSE}
+# Extract the values for the manual plot
+VPdet_vals <- as.data.frame(VP_det$vals)
+ncol(VPdet_vals)
+mean_vpdet <- as.data.frame(rowSums(VPdet_vals[1:3])/ncol(VPdet_vals[1:3]))
+colnames(mean_vpdet) <- "mean"
+mean_vpdet <- mean_vpdet %>% 
+  rownames_to_column("variable") %>% 
+  mutate(percent = round(mean * 100,2), 
+         variable = factor(variable, levels = c("Random: site", "covid", "season", "garden",  "urban", "cats")))  
+mean_vpdet
+
+# set species names
+my_species <- c("Red_fox", "Raccoon", "Marten")
+
+colnames(VPdet_vals) <- my_species
+VPdet_vals$variable <- row.names(VPdet_vals)
+
+# Transform the dataframe into the required format
+VPdet_toplot<- melt(VPdet_vals, id.vars = "variable")
+colnames(VPdet_toplot)[2] <- "species"
+# Give the order (top down) to the levels of the factor to plot
+VPdet_toplot$variable <- factor(VPdet_toplot$variable, levels = c("Random: site", "covid", "season", "garden",  "urban", "cats"))
+
+head(VPdet_toplot)
+tail(VPdet_toplot)
+
+plot(VPdet_toplot$value ~ VPdet_toplot$variable)
+
+# write.csv(VPdet_toplot, paste0(det_results_wd, "/VPdet_toplot"), row.names = FALSE)
+# VPdet_toplot <- read.csv(paste0(det_results_wd, "/VPdet_toplot"))
+
+mean_vpdet[VPdet_toplot$variable[1]]
+mean_vpdet[VPdet_toplot$variable[6]]
+
+varpartplot <- ggplot(VPdet_toplot, aes(x = species, y = value, fill=variable)) +
+  geom_bar(stat='identity', colour = "grey40", alpha = 0.3) +
+  scale_fill_manual(values=alpha(c("lightyellow", "darkorchid4", "darkblue", "darkgreen", "grey", "red"), 0.5),
+                    name = "Variable type", 
+                    labels=c(paste0("Random factor\n(mean = ", 
+                                       mean_vpdet$percent[mean_vpdet$variable == VPdet_toplot$variable[6]], ")"),
+                             paste0("Covid\n(mean = ", 
+                                       mean_vpdet$percent[mean_vpdet$variable == "covid"], ")"), 
+                                paste0("Season\n(mean = ", 
+                                       mean_vpdet$percent[mean_vpdet$variable == "season"], ")"), 
+                                paste0("Garden\n(mean = ", 
+                                       mean_vpdet$percent[mean_vpdet$variable == "garden"], ")"),
+                                paste0("Urban\n(mean = ", 
+                                       mean_vpdet$percent[mean_vpdet$variable == "urban"], ")"),
+                               paste0("Cats\n(mean = ", 
+                                       mean_vpdet$percent[mean_vpdet$variable == "cats"], ")"))) +
+  labs(#title = "Variance Partitioning", 
+       x = "\nCarnivore Species", 
+       y = "Variance partitioning (%)\n", col = "black") +
+  scale_y_continuous(limits = c(0,1.01), expand = c(0, 0)) +
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), panel.border = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0, 
+                                   size=10, colour = "black"),
+        axis.text.y = element_text(colour = "black", size = 10),
+        axis.title.y = element_text(hjust = 0.5, vjust = 1.5),
+        # legend.position = "right", 
+        # legend.title = element_blank(), 
+        legend.key.height = unit(1.5, "lines"),
+        # legend.key.width = unit(1.5, "lines"), 
+        # legend.spacing.y = unit(-3, 'cm'),
+        # legend.text=element_text(size=10))
+  )
+
+varpartplot 
+
+ggsave(paste0(plots_wd, "/DET_Varpart_5seasons.png"), plot = varpartplot, 
+       dpi = 600, width = 6, height = 5)
+```
+
+### Use intensity model var part
+```{r, message=FALSE}
+# Extract the values for the manual plot
+VPuse_vals <- as.data.frame(VP_use$vals)
+ncol(VPuse_vals)
+mean_vpuse <- as.data.frame(rowSums(VPuse_vals[1:3])/ncol(VPuse_vals[1:3]))
+colnames(mean_vpuse) <- "mean"
+mean_vpuse <- mean_vpuse %>% 
+  rownames_to_column("variable") %>% 
+  mutate(percent = round(mean * 100,2), 
+         variable = factor(variable, levels = c("Random: site", "covid", "season", "garden",  "urban", "cats")))  
+mean_vpuse
+
+# set species names
+my_species <- c("Red_fox", "Raccoon", "Marten")
+
+colnames(VPuse_vals) <- my_species
+VPuse_vals$variable <- row.names(VPuse_vals)
+
+# Transform the dataframe into the required format
+VPuse_toplot<- melt(VPuse_vals, id.vars = "variable")
+colnames(VPuse_toplot)[2] <- "species"
+# Give the order (top down) to the levels of the factor to plot
+VPuse_toplot$variable <- factor(VPuse_toplot$variable, levels = c("Random: site", "covid", "season", "garden",  "urban", "cats"))
+
+head(VPuse_toplot)
+tail(VPuse_toplot)
+
+plot(VPuse_toplot$value ~ VPuse_toplot$variable)
+
+# write.csv(VPuse_toplot, paste0(use_results_wd, "/VPuse_toplot"), row.names = FALSE)
+# VPuse_toplot <- read.csv(paste0(use_results_wd, "/VPuse_toplot"))
+
+mean_vpuse[VPuse_toplot$variable[1]]
+mean_vpuse[VPuse_toplot$variable[6]]
+
+varpartplot_use <- ggplot(VPuse_toplot, aes(x = species, y = value, fill=variable)) +
+  geom_bar(stat='identity', colour = "grey40", alpha = 0.3) +
+  scale_fill_manual(values=alpha(c("lightyellow", "darkorchid4", "darkblue", "darkgreen", "grey", "red"), 0.5),
+                    name = "Variable type", 
+                    labels=c(paste0("Random factor\n(mean = ", 
+                                       mean_vpuse$percent[mean_vpuse$variable == VPuse_toplot$variable[6]], ")"),
+                             paste0("Covid\n(mean = ", 
+                                       mean_vpuse$percent[mean_vpuse$variable == "covid"], ")"), 
+                                paste0("Season\n(mean = ", 
+                                       mean_vpuse$percent[mean_vpuse$variable == "season"], ")"), 
+                                paste0("Garden\n(mean = ", 
+                                       mean_vpuse$percent[mean_vpuse$variable == "garden"], ")"),
+                                paste0("Urban\n(mean = ", 
+                                       mean_vpuse$percent[mean_vpuse$variable == "urban"], ")"),
+                               paste0("Cats\n(mean = ", 
+                                       mean_vpuse$percent[mean_vpuse$variable == "cats"], ")"))) +
+  labs(#title = "Variance Partitioning", 
+       x = "\nCarnivore Species", 
+       y = "Variance partitioning (%)\n", col = "black") +
+  scale_y_continuous(limits = c(0,1.01), expand = c(0, 0)) +
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), panel.border = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0, 
+                                   size=10, colour = "black"),
+        axis.text.y = element_text(colour = "black", size = 10),
+        axis.title.y = element_text(hjust = 0.5, vjust = 1.5),
+        # legend.position = "right", 
+        # legend.title = element_blank(), 
+        legend.key.height = unit(1.5, "lines"),
+        # legend.key.width = unit(1.5, "lines"), 
+        # legend.spacing.y = unit(-3, 'cm'),
+        # legend.text=element_text(size=10))
+  )
+
+varpartplot_use
+
+ggsave(paste0(plots_wd, "/USE_Varpart_5seasons.png"), plot = varpartplot_use, 
+       dpi = 600, width = 6, height = 5)
+```
+
+### Nocturnality model var part
+```{r, message=FALSE}
+# Extract the values for the manual plot
+VPnoct_vals <- as.data.frame(VP_noct$vals)
+ncol(VPnoct_vals)
+mean_vpnoct <- as.data.frame(rowSums(VPnoct_vals[1:3])/ncol(VPnoct_vals[1:3]))
+colnames(mean_vpnoct) <- "mean"
+mean_vpnoct <- mean_vpnoct %>% 
+  rownames_to_column("variable") %>% 
+  mutate(percent = round(mean * 100,2), 
+         variable = factor(variable, levels = c("Random: site", "covid", "season", "garden",  "urban", "cats")))  
+mean_vpnoct
+
+# set species names
+my_species <- c("Red_fox", "Raccoon", "Marten")
+
+colnames(VPnoct_vals) <- my_species
+VPnoct_vals$variable <- row.names(VPnoct_vals)
+
+# Transform the dataframe into the required format
+VPnoct_toplot<- melt(VPnoct_vals, id.vars = "variable")
+colnames(VPnoct_toplot)[2] <- "species"
+# Give the order (top down) to the levels of the factor to plot
+VPnoct_toplot$variable <- factor(VPnoct_toplot$variable, levels = c("Random: site", "covid", "season", "garden",  "urban", "cats"))
+
+head(VPnoct_toplot)
+tail(VPnoct_toplot)
+
+plot(VPnoct_toplot$value ~ VPnoct_toplot$variable)
+
+# write.csv(VPnoct_toplot, paste0(nocturnality2_results_wd, "/VPnoct_toplot"), row.names = FALSE)
+# VPnoct_toplot <- read.csv(paste0(nocturnality2_results_wd, "/VPnoct_toplot"))
+
+mean_vpnoct[VPnoct_toplot$variable[1]]
+mean_vpnoct[VPnoct_toplot$variable[6]]
+
+varpartplot_noct <- ggplot(VPnoct_toplot, aes(x = species, y = value, fill=variable)) +
+  geom_bar(stat='identity', colour = "grey40", alpha = 0.3) +
+  scale_fill_manual(values=alpha(c("lightyellow", "darkorchid4", "darkblue", "darkgreen", "grey", "red"), 0.5),
+                    name = "Variable type", 
+                    labels=c(paste0("Random factor\n(mean = ", 
+                                       mean_vpnoct$percent[mean_vpnoct$variable == VPnoct_toplot$variable[6]], ")"),
+                             paste0("Covid\n(mean = ", 
+                                       mean_vpnoct$percent[mean_vpnoct$variable == "covid"], ")"), 
+                                paste0("Season\n(mean = ", 
+                                       mean_vpnoct$percent[mean_vpnoct$variable == "season"], ")"), 
+                                paste0("Garden\n(mean = ", 
+                                       mean_vpnoct$percent[mean_vpnoct$variable == "garden"], ")"),
+                                paste0("Urban\n(mean = ", 
+                                       mean_vpnoct$percent[mean_vpnoct$variable == "urban"], ")"),
+                               paste0("Cats\n(mean = ", 
+                                       mean_vpnoct$percent[mean_vpnoct$variable == "cats"], ")"))) +
+  labs(#title = "Variance Partitioning", 
+       x = "\nCarnivore Species", 
+       y = "Variance partitioning (%)\n", col = "black") +
+  scale_y_continuous(limits = c(0,1.01), expand = c(0, 0)) +
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), panel.border = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0, 
+                                   size=10, colour = "black"),
+        axis.text.y = element_text(colour = "black", size = 10),
+        axis.title.y = element_text(hjust = 0.5, vjust = 1.5),
+        # legend.position = "right", 
+        # legend.title = element_blank(), 
+        legend.key.height = unit(1.5, "lines"),
+        # legend.key.width = unit(1.5, "lines"), 
+        # legend.spacing.y = unit(-3, 'cm'),
+        # legend.text=element_text(size=10))
+  )
+
+varpartplot_noct
+
+ggsave(paste0(plots_wd, "/NOCT_Varpart_5seasons.png"), plot = varpartplot_noct, 
+       dpi = 600, width = 6, height = 5)
+```
+
+

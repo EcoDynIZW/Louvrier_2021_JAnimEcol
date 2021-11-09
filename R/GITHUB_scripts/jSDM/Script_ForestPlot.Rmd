@@ -1,0 +1,164 @@
+---
+title: "ForestPlot"
+author: "Aimara Planillo"
+date: "06/05/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Creating forest plots with multiple models
+
+###Packages
+```{r}
+library(coda)
+library(dplyr)
+library(ggplot2)
+
+```
+
+### Workspace 
+This is specific to each project. Adapt to your workspace
+```{r}
+WorkDir <- getwd()
+output_wd <- file.path(WorkDir, "5_Results/Nodupl/DETECTION_allseasons/ModelCheck")
+plots_wd <- file.path(WorkDir, "5_Results/Nodupl/Plots")
+```
+
+### Data
+
+In my case, I had a multiresponse model, thus I load the model and then divide the data as one dataset per species
+```{r}
+# coda object (model output)
+mpost <- readRDS(paste0(output_wd, "/mpost_coda_DET_allseasons.rds"))
+
+# betas (coefficients) for each species
+mpost.beta.fox <- mpost$Beta[,1:12]
+mpost.beta.raccoon <- mpost$Beta[,13:24]
+mpost.beta.marten <- mpost$Beta[,25:36]
+
+head(mpost.beta.marten)
+summary(mpost.beta.marten)
+```
+
+
+### Rearrange data to new data frame for plotting
+```{r}
+colnames(mpost.beta.fox[[1]])
+
+# new names for the explanatory variables
+my_variables <- c("Intercept", "Spring", 
+                  "No_compost", "Open_compost", "Garden_size", "Local_tree_cover", "Fence_height",
+                  "Human_population", "Impervious_surface", "Noise", "Tree_cover", "Cat")
+
+#rename columns in betas
+for (i in 1:length(mpost.beta.fox)){
+  colnames(mpost.beta.fox[[i]]) <- my_variables
+}
+for (i in 1:length(mpost.beta.raccoon)){
+  colnames(mpost.beta.raccoon[[i]]) <- my_variables
+}
+for (i in 1:length(mpost.beta.marten)){
+  colnames(mpost.beta.marten[[i]]) <- my_variables
+}
+
+
+# extract values to plot
+summary(mpost.beta.fox)$statistics
+summary(mpost.beta.fox)$quantiles
+
+
+# Put model estimates into temporary data.frames. Add variable "Species" for plotting
+model1Frame <- data.frame(Variable = my_variables,
+                          Coefficient = summary(mpost.beta.fox)$statistics[,1],
+                          CI_low = summary(mpost.beta.fox)$quantiles[,1],
+                          Q_25 = summary(mpost.beta.fox)$quantiles[, 2],
+                          Q_50 = summary(mpost.beta.fox)$quantiles[,3],
+                          Q_75 = summary(mpost.beta.fox)$quantiles[, 4],
+                          CI_high = summary(mpost.beta.fox)$quantiles[,5],
+                          Species = "Fox") 
+
+model2Frame <- data.frame(Variable = my_variables,
+                          Coefficient = summary(mpost.beta.raccoon)$statistics[,1],
+                          CI_low = summary(mpost.beta.raccoon)$quantiles[,1],
+                          Q_25 = summary(mpost.beta.raccoon)$quantiles[, 2],
+                          Q_50 = summary(mpost.beta.raccoon)$quantiles[,3],
+                          Q_75 = summary(mpost.beta.raccoon)$quantiles[, 4],
+                          CI_high = summary(mpost.beta.raccoon)$quantiles[,5],
+                          Species = "Raccoon")
+
+model3Frame <- data.frame(Variable = my_variables,
+                          Coefficient = summary(mpost.beta.marten)$statistics[,1],
+                          CI_low = summary(mpost.beta.marten)$quantiles[,1],
+                          Q_25 = summary(mpost.beta.marten)$quantiles[, 2],
+                          Q_50 = summary(mpost.beta.marten)$quantiles[,3],
+                          Q_75 = summary(mpost.beta.marten)$quantiles[, 4],
+                          CI_high = summary(mpost.beta.marten)$quantiles[,5],
+                          Species = "Marten")
+
+
+# Combine these data.frames
+allModelFrame <- data.frame(rbind(model1Frame, model2Frame, model3Frame)) 
+
+# Relevel factors so they are plotted in the desired order
+allModelFrame$Variable <- factor(allModelFrame$Variable, levels = rev(my_variables))
+allModelFrame$Species <- factor(allModelFrame$Species,levels = c("Raccoon", "Fox", "Marten"))
+summary(allModelFrame)
+# write.csv(allModelFrame, paste0(plots_wd, "/DET_allMOdelFrame.csv"), row.names = FALSE)
+
+
+# Create variable of "Significant" for those coefficients with 95 CI not overlapping zero
+# variables with CRI not overlapping 0
+allModelFrame <- allModelFrame %>%
+  mutate(significant = case_when(
+    CI_low < 0 & CI_high < 0 ~ "Yes",
+    CI_low > 0 & CI_high > 0 ~ "Yes", 
+    TRUE ~ "No"))
+```
+
+
+# Forest Plot
+
+```{r}
+zp1 <- ggplot(allModelFrame, aes(group = Species, colour = Species)) + 
+  # future vertical line at 0
+  geom_hline(yintercept = 0, colour = gray(1/2), lty = 2) + 
+  # line of 95 CI
+  geom_linerange(aes(x = Variable, ymin = CI_low,
+                                ymax = CI_high, fill = significant),
+                            lwd = 0.8, position = position_dodge(width = 1.2/2)) + 
+  # line of 50 CI
+  geom_linerange(aes(x = Variable, ymin = Q_25,
+                                ymax = Q_75, fill = significant),
+                            lwd = 1.5, position = position_dodge(width = 1.2/2)) + 
+  # this is the coefficient. No so important the values of ymin and ymax
+  geom_pointrange(aes(x = Variable, y = Coefficient, ymin = Q_25,
+                                 ymax = Q_75, fill = significant),
+                             lwd = 1/2, shape = 21, position = position_dodge(width = 1.2/2)) +
+  # make it vertical
+  coord_flip() + 
+  # color for significant
+  scale_fill_manual(values = c("White", "black"))+
+    scale_y_continuous(limits = c(-4.2, 3)) +
+  # color for species
+  scale_colour_viridis_d(option = "viridis", begin = 0.1, end = 0.9, 
+                         guide = guide_legend(reverse = TRUE)) +
+  # extra esthetics
+  theme(
+    panel.background = element_rect(fill = NA),
+    panel.grid.major = element_blank(), 
+    axis.line = element_line(colour = "black")) +
+    ggtitle("Urban mesocarnivores spatial responses")
+
+
+zp1
+
+# save plot
+ggsave(plot = zp1, paste0(plots_wd, "/DET_coefs_allseasons_allspecies.png"))
+
+```
+

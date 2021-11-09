@@ -1,0 +1,276 @@
+---
+title: "Mesocarnivore community temporal analyses: regressions for CAT" ## name of your project
+author: "Julie Louvrier, Aimara Planillo, Stephanie Kramer-Schadt"                     ## your name(s)
+date: "`r Sys.Date()`"                  ## current date
+output:
+  rmdformats::readthedown:
+    code_folding: hide                  ## hide or show code by default?
+    toc_depth: 3                        ## 3-level TOC
+---
+
+```{r setup, include=FALSE}
+## You can ignore this chunk in most cases
+## If you want to modify chunk options, you can do it here for all chunks or
+## add the options in the repsective chunk header, e.g. `{r, message = FALSE}`
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE,
+                      fig.width = 9, fig.height = 6, dpi = 500, 
+                      retina = 1, fig.showtext = TRUE)
+```
+
+* **Research question:do urban mesocarnivores experience temporal partitioning in gardens? **
+* **Study area: Berlin fall 2018, spring 2019, fall 2019, spring 2020, fall 2020**
+* **Data: all seasons detection histories** 
+
+
+# Setup
+### Packages
+
+```{r packages}
+rm(list=ls())
+## for non-CRAN packages please keep install instruction
+## but commented so it is not run each time, e.g.
+# devtools::install_github("EcoDynIZW/template")
+
+## libraries used in this script
+## please add ALL LIBRARIES NEEDED HERE
+## please remove libraries from the list that are not needed anymore 
+## at a later stage
+#### load required libraries ####
+rm(list=ls())
+package.list=c("bayestestR",
+               "camtrapR",
+               "car",
+               "dplyr",
+               "evaluate",
+               "gdata",
+               "ggplot2",
+               "here",
+               "janitor",
+               "insight",
+               "maptools",
+               "MASS",
+               "optimbase",
+               "plyr",
+               "raster",
+               "readxl",
+               #"rgdal",
+               #"rgeos",
+               #"rjags",
+               "rlecuyer",
+               "rstanarm",
+               "showtext",
+               #"sf",
+               "sjlabelled",
+               "sjmisc",
+               "sjPlot",
+               "snowfall",
+               #"sp",
+               "stringr",
+               "tidyverse"
+               )
+
+
+
+for (package in package.list) {
+  if (!require(package, character.only=T, quietly=T)) {
+    install.packages(package)
+    library(package, character.only=T)
+  }
+}
+```
+
+### Workspace
+```{r}
+WorkDir <- here::here()
+
+
+procdata_wd <- file.path(WorkDir, "output/data-proc/temporal_processed_data")
+plots_wd <- file.path(WorkDir, "plots/temp")
+```
+
+### Loading data
+```{r}
+
+cat_cat <- readRDS(here::here("output", "data-proc", "temporal_processed_data", "average_diff_cat_cat_id_covenv2021_10_28.RDS"))
+
+rac_cat <- readRDS(here::here("output", "data-proc", "temporal_processed_data", "average_diff_raccoon_cat_id_covenv2021_10_28.RDS"))
+
+mart_cat <- readRDS(here::here("output", "data-proc", "temporal_processed_data", "average_diff_marten_cat_id_covenv2021_10_28.RDS"))
+
+fox_cat <- readRDS(here::here("output", "data-proc", "temporal_processed_data", "average_diff_fox_cat_id_covenv2021_10_28.RDS"))
+```
+
+# Data prep
+
+```{r}
+#adding the species column
+fox_cat_species <- cbind(fox_cat, species = "fox")
+cat_cat_species <- cbind(cat_cat, species = "cat")
+rac_cat_species <- cbind(rac_cat, species = "raccoon")
+mart_cat_species <- cbind(mart_cat, species = "marten")
+
+#rbinding everything
+delta_cat <- rbind(cat_cat_species,
+                   fox_cat_species,
+                   rac_cat_species,
+                   mart_cat_species)
+
+delta_cat$species <- factor(delta_cat$species, levels = c("cat","fox", "raccoon", "marten"))
+
+
+#transforming to positive means
+delta_cat$mean <- - (delta_cat$mean)
+delta_cat <- delta_cat[-(which(delta_cat$mean==0)),] #taking out the zeros because it doesn't work
+
+#scaling all the other variables
+#first,renaming
+names(delta_cat) <- c("User_uid","value","season","garden_type",
+                      "garden_size","Local_tree_cover","fence_height","compost","Lat", "Long",
+                      "pop_100","dist_water_100", "imperv_100", "noise_100", "tree_cover_100", "distance_border",
+                      "inside","species")
+
+#scaling the values
+delta_cat[,c("garden_size","Local_tree_cover","fence_height","pop_100",
+              "dist_water_100", "imperv_100", "noise_100", "tree_cover_100", "distance_border")] <- scale(delta_cat[,c("garden_size","Local_tree_cover","fence_height","pop_100", "dist_water_100", "imperv_100", "noise_100", "tree_cover_100", "distance_border")])
+
+#setting the season as factor
+delta_cat$season <- as.factor((delta_cat$season))
+
+
+# make sure we apply a nice theme
+theme_set(theme_sjplot())
+
+```
+
+# Running model
+
+```{r}
+delta_cat$season
+
+#adding a new covid column
+delta_cat_covid = delta_cat %>% mutate(covid = factor(ifelse(season == "1"| season == "2"| season == "3", "0", "1")))
+
+
+#replacing the seasons by fall and spring
+delta_cat_covid_season_binary = delta_cat_covid %>% mutate(season_binary = factor(ifelse(season == "2"| season == "4", "spring", "fall")))
+
+saveRDS(delta_cat_covid_season_binary,file = here::here("output", "data-proc", "temporal_processed_data", paste0("delta_cat_covid_season_binary",gsub("-", "_", Sys.Date()),".RDS")))
+
+# make sure we apply a nice theme
+theme_set(theme_sjplot())
+
+
+### with stan ####
+m_cat_12_covid <- stan_glmer(value ~ (1 | User_uid) + garden_size + Local_tree_cover + fence_height +
+                        pop_100 + imperv_100 + noise_100 + tree_cover_100 + distance_border + season_binary + covid+ compost + species,
+                       family = Gamma,data = delta_cat_covid_season_binary, chains = 2, prior_intercept = normal(0,1),
+                       prior = normal(0,1), seed = 12345, iter=3000, warmup=1000)
+
+# plot_model(m_cat_12_covid) + ylim(.85, 1.2)
+
+saveRDS(m_cat_12_covid, file = here::here("output", "data-proc", "temporal_processed_data", paste0("m_cat_12_covid",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+#Now checking the results, running some post predictive checks
+
+```{r}
+m_cat_12_covid <- readRDS(here::here("output", "data-proc", "temporal_processed_data", paste0("m_cat_12_covid2021_10_29",".RDS")))
+
+
+describe_posterior(m_cat_12_covid, test = c("p_direction","rope","bayesfactor"))
+
+pp_check(m_cat_12_covid)
+ppcheckCat_line <- pp_check(m_cat_12_covid) + xlim(c(0,12)) +
+                      ggtitle("Cat") 
+ggsave(plot = ppcheckCat_line, paste0(plots_wd, "/ppcheckCat_line", gsub("-", "_", Sys.Date()),".png"), height=8, width=9, units='in', dpi=600)
+
+
+
+```
+
+
+# run separately for each species couple 
+
+```{r}
+####cat marten 
+#cat cat
+delta_cat_cat_only <- delta_cat_covid_season_binary %>% filter(species == "cat")
+
+#cat marten
+delta_cat_mart_only <- delta_cat_covid_season_binary %>% filter(species == "marten")
+
+#selecting the gardens where both species are present
+garden_cat_marten_ID <- Reduce(intersect, list(delta_cat_cat_only$User_uid,                          delta_cat_mart_only$User_uid))
+
+#selecting the data
+cat_cat_only <- delta_cat_cat_only[which(delta_cat_cat_only$User_uid %in% garden_cat_marten_ID),]
+cat_marten_only <- delta_cat_mart_only[which(delta_cat_mart_only$User_uid %in% garden_cat_marten_ID),]
+
+#putting them all together
+delta_cat_mart <- rbind(cat_cat_only, cat_marten_only)
+
+
+m_cat_2species_mart <- stan_glmer(value ~ (1 | User_uid) + species,
+                       family = Gamma,data = delta_cat_mart, chains = 2, prior_intercept = normal(0,1),
+                       prior = normal(0,1), seed = 12345, iter=3000, warmup=1000)
+
+#plot_model(m_cat_2species_cat) + ylim(.85, 1.2)
+
+describe_posterior(m_cat_2species_mart, test = c("p_direction","rope","bayesfactor"))
+
+
+##cat raccoon
+#cat raccoon
+delta_cat_raccoon_only <- delta_cat_covid_season_binary %>% filter(species == "raccoon")
+
+#selecting the gardens where both species are present
+garden_cat_raccoon_ID <- Reduce(intersect, list(delta_cat_cat_only$User_uid,                          delta_cat_raccoon_only$User_uid))
+
+#selecting the data
+cat_cat_only <- delta_cat_cat_only[which(delta_cat_cat_only$User_uid %in% garden_cat_raccoon_ID),]
+raccoon_cat_only <- delta_cat_raccoon_only[which(delta_cat_raccoon_only$User_uid %in% garden_cat_raccoon_ID),]
+
+#putting them all together
+delta_cat_raccoon <- rbind(cat_cat_only, raccoon_cat_only)
+
+
+m_cat_2species_raccoon <- stan_glmer(value ~ (1 | User_uid) + species,
+                       family = Gamma,data = delta_cat_raccoon, chains = 2, prior_intercept = normal(0,1),
+                       prior = normal(0,1), seed = 12345, iter=3000, warmup=1000)
+
+#plot_model(m_cat_2species_raccoon) + ylim(.85, 1.2)
+
+describe_posterior(m_cat_2species_raccoon, test = c("p_direction","rope","bayesfactor"))
+
+
+##cat fox
+#cat fox
+delta_cat_fox_only <- delta_cat_covid_season_binary %>% filter(species == "fox")
+
+#selecting the gardens where both species are present
+garden_cat_fox_ID <- Reduce(intersect, list(delta_cat_cat_only$User_uid,                          delta_cat_fox_only$User_uid))
+
+#selecting the data
+cat_cat_only <- delta_cat_cat_only[which(delta_cat_cat_only$User_uid %in% garden_cat_fox_ID),]
+fox_cat_only <- delta_cat_fox_only[which(delta_cat_fox_only$User_uid %in% garden_cat_fox_ID),]
+
+#putting them all together
+delta_cat_fox <- rbind(cat_cat_only, fox_cat_only)
+
+
+m_cat_2species_fox <- stan_glmer(value ~ (1 | User_uid) + species,
+                       family = Gamma,data = delta_cat_fox, chains = 2, prior_intercept = normal(0,1),
+                       prior = normal(0,1), seed = 12345, iter=3000, warmup=1000)
+
+#plot_model(m_cat_2species_cat) + ylim(.85, 1.2)
+
+describe_posterior(m_cat_2species_fox, test = c("p_direction","rope","bayesfactor"))
+
+saveRDS(m_cat_2species_mart, file = here::here("output", "data-proc", "temporal_processed_data", paste0("m_cat_2species_mart",gsub("-", "_", Sys.Date()),".RDS")))
+
+saveRDS(m_cat_2species_raccoon, file = here::here("output", "data-proc", "temporal_processed_data", paste0("m_cat_2species_raccoon",gsub("-", "_", Sys.Date()),".RDS")))
+
+saveRDS(m_cat_2species_fox, file = here::here("output", "data-proc", "temporal_processed_data", paste0("m_cat_2species_fox",gsub("-", "_", Sys.Date()),".RDS")))
+```
+

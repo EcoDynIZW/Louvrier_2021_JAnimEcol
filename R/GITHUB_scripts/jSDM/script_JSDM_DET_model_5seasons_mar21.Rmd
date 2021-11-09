@@ -1,0 +1,853 @@
+---
+title: "JSDM_Det_5seasons_covid"
+author: "Aimara Planillo"
+date: "19/3/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# **DETECTION JSDM model** with *5 seasons* 
+
+Fall 2018, Spring 19, Fall 2019, Spring 20 (covid), Fall 20 (covid)
+
+Run JSDM model of carnivore detection data from citizen scientists camera traps 
+in their gardens, using package from Ovaskainen/Tikhonov to obtain distributions and
+species associations in Berlin.
+
+Camera traps were set during 5 seasons, one month per season. 
+
+* **Response variable**: 
+  - *Presence/Absence carnivore*: detection of the species (at least once during the sampling month) 
+    - Red Fox
+    - Raccoon
+    - Marten (stone marten + pine marten)
+
+* **Explanatory variables**:
+  - *Garden characteristics*:
+    - compost: categorical (no, open, closed)
+    - garden size: continuous (garden area measured citizens)
+    - local tree cover: continuous (tree cover at gardens by citizens)
+    - fence height: continuous (garden fence height by citizens)
+  - *Urban characteristics*:
+    - pop 100: continuous (human population density, n inhabitants, focal mean) 
+    - imperv 100: continuous (impervious surface cover %, focal mean)
+    - noise 100: continuous (noise levels day and night in dB(a), focal mean)
+    - tree cover 100: continuous (tree cover %, focal mean)
+    - distance_border: continuous (distance to city border, meters)
+  - *(Domestic) Cat*: categorical (presence/absence)
+  - *Season*: categorical (fall, spring)
+  - *covid*: categorical (yes, no)
+
+Data prepared by Julie Louvrier. Observations with Na in any explanatory variable 
+have been previously removed. 
+
+Urban characteristics variables scale: **100m resolution** (Focal means by Aimara Planillo)
+
+* **Formula**:
+~ garden_size + Local_tree_cover + fence_height + compost +
+  pop_100 + imperv_100 + noise_100 + tree_cover_100 + d_cityB +
+  season + covid + cat
+  
+* **Random variable**:
+- *NO*: spatial structure of sampling points
+- Camera ID: not repeated
+
+* Phylogeny = **NO**
+
+* Traits: **NO** 
+  
+* **Model characteristics**
+- 250000 samples
+- Thinning: 20
+- Burn-in: 10000
+- n chains: 3
+- Priors: uninformative
+
+
+```{r packages and workspace}
+source(paste0(getwd(), "/3_scripts/source_file_lib.R"))
+source(paste0(getwd(), "/3_scripts/source_file_wd.R"))
+```
+
+
+## Load and clean data
+```{r}
+# load species detections
+species_file <- list.files(data_wd, pattern = c("Detection.+ordered"))
+species_file
+
+det_species <- readRDS(file.path(data_wd, species_file[2]))
+head(det_species)
+str(det_species)
+
+# user_uid 1769 and 1869 are season 5
+## Corrected data
+
+det_species$project_phase[det_species$User_uid == 1769 | det_species$User_uid == 1869] <- 5
+
+
+# load envir variables
+envir_file <- list.files(data_wd, pattern = "raster")
+envcov <- readRDS(file.path(data_wd, envir_file))
+head(envcov)
+str(envcov)
+summary(envcov)
+
+
+# Join both data sets by user id and season
+det_envir <- left_join(det_species, envcov, by = c("User_uid", "project_phase")) %>% 
+  mutate(season = case_when(
+    project_phase %in% c(1,3,5) ~ "Fall",
+    project_phase %in% c(2,4) ~ "Spring"),
+    covid = case_when(
+    project_phase %in% c(1,2,3) ~ "No",
+    project_phase %in% c(4,5) ~ "Yes"))
+    
+  
+head(det_envir)
+str(det_envir)
+summary(det_envir)
+
+det_envir[is.na(det_envir$noise_100),]
+det_envir[is.na(det_envir),]
+
+det_envir %>% 
+  group_by(project_phase) %>% 
+  summarise(n_cam = n_distinct(User_uid))
+# write.csv(det_envir, paste0(data_wd, "/Detection_envir_alldata_nodupl_noNa_mar21.csv"), row.names = FALSE)
+# det_envir <- read.csv(paste0(data_wd, "/Detection_envir_alldata_nodupl_noNa_mar21.csv")) 
+```
+  project_phase n_cam
+          <dbl> <int>
+1             1   150
+2             2   116
+3             3   133
+4             4   122
+5             5   148
+
+## Prepare data for DETECTION JSDM model
+```{r}
+head(det_envir)
+# response
+species_matrix <- det_envir %>%
+  dplyr::select(Red_fox, Raccoon, Marten) %>%
+  as.matrix()
+  
+head(species_matrix)
+
+# covariates: select env variables 
+covariates <- det_envir %>%
+  dplyr::select(garden_size, Local_tree_cover, fence_height, compost, 
+                pop_100, imperv_100, noise_100, tree_cover_100, distance_border, 
+                Cat, season, covid) %>% 
+  # make all characters factors for running the model
+  mutate(compost = as.factor(compost),
+         season = as.factor(season), 
+         covid = as.factor(covid), 
+         Cat = as.factor(Cat))
+
+head(covariates)
+str(covariates)
+
+# spatial coordinates
+# xyData <- read.csv(paste0(procdata_wd, "/xyData.csv"), row.names = 1)
+```
+
+
+## Set up and Run the model
+```{r}
+# Study design and random effects (no spatial latent variable in this case, just camera id)
+site.id <- as.factor(det_envir$User_uid)
+studyDesign <- data.frame(site = site.id)
+str(studyDesign)
+
+rL <- HmscRandomLevel(units = studyDesign)
+rL$s
+
+# Define MCMC parameters
+thin <- 20
+samples <- 250000
+transient <- 10000
+nChains <- 3
+verbose <- 1000
+
+# Regression formula for environmental covariates
+head(covariates)
+XFormula_det = ~ garden_size + Local_tree_cover + fence_height + compost +
+  pop_100 + imperv_100 + noise_100 + tree_cover_100 + distance_border +
+  season + covid + Cat
+
+
+# BINOMIAL DISTRIBUTION: Untransformed data (presence/absence)
+## Model scales the data prior to running
+
+# Fit the model
+m <- Hmsc(Y = species_matrix, XData = covariates, XFormula = XFormula_det,
+          studyDesign=studyDesign, ranLevels=list(site=rL),
+          # TrData = NA, TrFormula = NA,
+          distr = "probit") # for 2 values: presence/absence
+
+# For repeatability 
+set.seed(111)
+
+# Run Markov Chains
+# test
+m <- sampleMcmc(m, thin = 1, samples = 50)
+
+# Model run
+m <- sampleMcmc(m, thin = thin, samples = samples, transient = transient,
+               nChains = nChains, verbose = verbose,
+               nParallel = nChains) # parallel processes = n chains (3)
+
+# Set a name for the model
+filename = paste0(det_results_wd, "/CT_carnivores_DET_5seasons_mar21.rds")
+ 
+#Save de model
+saveRDS(m,file=filename) 
+```
+
+### Load the model
+```{r load model}
+filename = paste0(det_results_wd, "/CT_carnivores_DET_5seasons_mar21.rds")
+m <- readRDS(filename)
+```
+
+## Model convergence 
+
+We evaluate MCMC convergence in terms of two kinds of parameters that we are especially interested in:
+the species niches Beta, and the residual species associations Omega. 
+The strength of phylogenetic signal rho and the influence of traits on species niches Gamma were not included in this model
+
+Evaluate convergence: Effective sample size and gelman-rubin diagnostic (potencial reduction factor)
+```{r model convergence}
+mpost <- convertToCodaObject(m)
+
+# Numerical output
+ess.beta <- effectiveSize(mpost$Beta)
+gd.beta <- gelman.diag(mpost$Beta, multivariate = FALSE)$psrf
+ess.omega <- effectiveSize(mpost$Omega[[1]])
+gd.omega <- gelman.diag(mpost$Omega[[1]], multivariate = FALSE)$psrf
+
+convergence.names <- c("ess.beta", "ess.omega", "gd.beta", "gd.omega")
+convergence.list <- list(ess.beta, ess.omega, gd.beta, gd.omega)
+for (i in 1:length(convergence.names)){
+  write.csv(convergence.list[[i]], paste0(det_results_wd,
+                                          "/", convergence.names[i], ".csv")) 
+          # row.names = FALSE)
+}
+
+# Graphical output
+png(paste0(det_results_wd, "/CTcar_DET_5seasons_model_convergence_hist.png"), width = 800, height = 1000,
+    pointsize = 20)
+par(mfrow=c(2,2))
+hist(ess.beta, main = "ess(beta)_CTcar_DET_5seasons")
+hist(ess.omega, main = "ess(omega)_CTcar_DET_5seasons")
+hist(gd.beta, main = "psrf(beta)_CTcar_DET_5seasons")
+hist(gd.omega, main = "psrf(omega)_CTcar_DET_5seasons")
+dev.off()
+
+# Save plots of the chains
+MCMCtrace(mpost$Beta, 
+          pdf = TRUE, 
+          open_pdf = FALSE,
+          filename = "CTcar_DET_5seasons_MCMCtrace_beta",
+          wd = det_results_wd)
+MCMCtrace(mpost$Omega[[1]], 
+          pdf = TRUE, 
+          open_pdf = FALSE,
+          filename = "CTcar_DET_5seasons_MCMCtrace_omega",
+          wd = det_results_wd)
+
+par(mfrow=c(1,1))
+
+mean(ess.beta)
+# [1] 25614.41
+mean(gd.beta)
+# [1] 1.081292
+mean(ess.omega)
+# [1] 4740.277
+mean(gd.omega)
+# [1] 1.167409
+
+(autocorrBeta <- autocorr(mpost$Beta))
+# write.csv(autocorrBeta, paste0(det_results_wd,
+#                                           "/autocorr_beta.csv"))
+
+(autocorrOmega <- autocorr(mpost$Omega[[1]]))
+# write.csv(autocorrOmega, paste0(det_results_wd,
+#                                           "/autocorr_omega.csv"))
+
+plot(mpost$Beta)
+plot(mpost$Omega[[1]])
+
+# saveRDS(mpost, paste0(det_results_wd, "/mpost_coda_DET_5seasons.rds"))
+# mpost <- readRDS(paste0(det_results_wd, "/mpost_coda_DET_5seasons.rds"))
+``` 
+
+
+## Model Fit (R2)
+```{r model fit}
+# Explanatory R2. Get predictions for the observed values 
+preds <- computePredictedValues(m, expected = TRUE)
+# saveRDS(preds, paste0(det_results_wd, "/preds_DET_5seasons.rds"))
+
+preds.values <- apply(abind(preds,along=3),c(1,2), median) # Median of the predictions
+write.csv(preds.values, paste0(det_results_wd, 
+                               "/Predicted_values_median_CTcar_DET_5seasons.csv"))
+preds.values.mean <- apply(abind(preds, along = 3), c (1,2), mean) # Mean of the predictions
+write.csv(preds.values.mean, paste0(det_results_wd, 
+                                    "/Predicted_values_mean_CTcar_DET_5seasons.csv"))
+
+# R2 with the built in function
+modelr2.explanatory <- evaluateModelFit(hM = m, predY = preds)
+modelr2.explanatory
+
+r2.explanatory.sp <- cbind(as.data.frame(modelr2.explanatory), species = m$spNames)
+r2.explanatory.sp
+# write.csv(r2.explanatory.sp, paste0(det_results_wd, "/DET_5seasons_explanatory_power.csv"), 
+#           row.names = FALSE)
+```
+$RMSE
+[1] 0.4068908 0.2241228 0.2085726
+
+$AUC
+[1] 0.8236247 1.0000000 1.0000000
+
+$TjurR2
+[1] 0.1403570 0.5618277 0.5723140
+
+```{r}
+# AUC of the model
+mean(modelr2.explanatory$AUC)
+# [1] 0.9412082
+
+# R2 of the model
+mean(modelr2.explanatory$TjurR2)
+# [1] 0.4248329
+
+temp.r2 <- cbind.data.frame(r2 = as.numeric(modelr2.explanatory$TjurR2), 
+                            species = as.character(m$spNames))
+ggplot(data = temp.r2, aes(y=r2, x=species))+
+  geom_point()
+write.csv(modelr2.explanatory, paste0(det_results_wd,                                       "/CTcar_DET_5seasons_explanatory_R2_default.csv"), row.names = FALSE)
+
+
+# R2 Manually comparing observed vs predicted
+R2.sp <- matrix(NA, m$ns, 1)
+for (i in 1:m$ns) {
+  R2.sp[i, ] <- cor(preds.values.mean[, i],m$Y[, i])^2
+}
+
+mean(R2.sp, na.rm=TRUE)
+# [1] 0.7392777
+
+# Plot of the default R2
+ggplot(data = as.data.frame(modelr2.explanatory$TjurR2), aes(y=modelr2.explanatory$TjurR2, x=temp.r2$species))+
+  geom_point() +
+  xlab("Species") +
+  ylab("R2 for each species") +
+  ggtitle(paste0("Urban Mammals - Default Tjur R2 species \n R2 = ", 
+                   round(mean(modelr2.explanatory$TjurR2, na.rm = TRUE), 2)))
+ggsave(paste0(det_results_wd, "/Plot_R2_species_default_DET_5seasons.png"))
+
+
+# Plot of the manual R2
+ggplot(data = as.data.frame(R2.sp), aes(y=V1, x=temp.r2$species))+
+  geom_point() +
+  xlab("Species") +
+  ylab("R2 for each species") +
+  ggtitle(paste0("Urban Mammals - Obs vs pred R2 species \n R2 = ", 
+                   round(mean(R2.sp, na.rm = TRUE), 2)))
+ggsave(paste0(det_results_wd, "/Plot_R2_species_manual_DET_5seasons.png"))
+```
+
+```{r site R2}
+R2.site <- matrix(NA, m$ny, 1)
+for (i in 1:m$ny) {
+  R2.site[i, ] <- cor(preds.values.mean[i, ], m$Y[i, ])^2
+}
+mean(R2.site, na.rm = TRUE)
+# [1] 0.8564254
+
+
+ggplot(data = as.data.frame(R2.site), aes(y=V1, x=seq(1, nrow(R2.site), by =1)))+
+  geom_point() +
+  xlab("Site index") +
+  ylab("R2 for each species") +
+  ggtitle(paste0("Urban Mammals - Obs vs pred R2 sites \n R2 = ", 
+                   round(mean(R2.site, na.rm = TRUE), 2)))
+ggsave(paste0(det_results_wd, "/Plot_R2_sites_manual_DET_5seasons.png"))
+
+
+# prevalence and r2
+ggplot(data = as.data.frame(R2.sp), aes(y=V1, x=colSums(m$Y) / m$ny))+
+  geom_point() +
+  xlab("Proportion of Sites") +
+  ylab("R2 for each species") +
+  ggtitle(paste0("Urban Mammals - Explanatory R2: proportion of sites present\n R2 = ", 
+                   round(mean(R2.site, na.rm = TRUE), 2)))
+ggsave(paste0(det_results_wd, "/Plot_R2_prevalence_manual_DET_5seasons.png"))
+
+
+# compare predicted and observed col sums (one data point is a species)
+png(paste0(det_results_wd, '/Plot_Obs_vs_Pred_sp_DET_5seasons.png'))
+plot(colSums(preds.values)~colSums(m$Y),
+     main = paste0("Urban Mammals", " - Observed vs Predicted Species presences \n Mean R2 = ", round(mean(R2.sp, na.rm = TRUE), 2)),
+     xlab = "n observed sites",
+     ylab = "n predicted sites",
+     pch = 16)
+abline(0,1, col = "red", 
+       lty = 4,
+       lwd = 1)
+dev.off()
+```
+
+
+## Posterior predictive check 
+
+```{r}
+# Select 50 first predictions
+# preds_tmp <- preds[, ,1:50]
+# saveRDS(preds_tmp, paste0(det_results_wd, "/preds_ppc_DET_5seasons.rds"))
+preds_tmp <- readRDS(paste0(det_results_wd, "/preds_ppc_DET_5seasons.rds"))
+
+# response
+det_envir <- read.csv(paste0(data_wd, "/Detection_envir_alldata_nodupl_noNa_mar21.csv")) 
+species_matrix <- det_envir %>%
+  dplyr::select(Red_fox, Raccoon, Marten) 
+head(species_matrix)
+
+
+### red fox
+# Extract observed y
+y_fox <- as.vector(species_matrix$Red_fox)
+
+
+# extract 50 predicted y
+test <- data.frame(Species = rep("Red_fox", nrow(preds_tmp[,,1])))
+for(i in 1:dim(preds_tmp)[3]){
+  x <- as.vector(preds_tmp[,,i][,"Red_fox"])
+  test[,ncol(test)+1] <- x
+  colnames(test)[ncol(test)] <- paste0("fox", i)
+}
+test
+ypred_fox <- t(as.matrix(test[,-1])) # probabilities
+
+# transform into 1/0
+library(Rlab)
+test_bern <- test
+
+A <- function(x) rbern(1, x)
+test_bern <- apply(test_bern[,-1],c(1,2), A) # bernoulli: 0/1
+ypred_bern_fox <- t(test_bern)
+
+
+# Run function - probabilities
+(ppc_fox <- pp_check(y_fox, ypred_fox, ppc_dens_overlay) +
+  ggtitle("PPC - Fox detection"))
+ggsave(plot = ppc_fox, filename = paste0(plots_wd, "/ppc_DET_fox.png"), 
+       dpi = 600, width = 9, height = 5.8)
+
+# Run function - bernoulli
+(ppc_fox <- pp_check(y_fox, ypred_bern_fox, ppc_dens_overlay) +
+  ggtitle("PPC - Fox detection"))
+ggsave(plot = ppc_fox, filename = paste0(plots_wd, "/ppc_DET_bern_fox.png"), 
+       dpi = 600, width = 9, height = 5.8)
+
+
+### raccoon
+# Extract observed y
+y_rac <- as.vector(species_matrix$Raccoon)
+
+# extract 50 predicted y
+test <- data.frame(Species = rep("Raccoon", nrow(preds_tmp[,,1])))
+for(i in 1:dim(preds_tmp)[3]){
+  x <- as.vector(preds_tmp[,,i][,"Raccoon"])
+  test[,ncol(test)+1] <- x
+  colnames(test)[ncol(test)] <- paste0("raccoon", i)
+}
+# Probabilities
+ypred_raccoon <- t(as.matrix(test[,-1]))
+
+# transform into 1/0
+test_bern <- test
+test_bern <- apply(test_bern[,-1],c(1,2), A) # bernoulli: 0/1
+ypred_bern_raccoon <- t(test_bern)
+
+
+# Run function
+ppc_rac <- pp_check(y_rac, ypred_raccoon, ppc_dens_overlay) +
+  ggtitle("PPC - Raccoon detection")
+ggsave(plot = ppc_rac, filename = paste0(plots_wd, "/ppc_DET_raccoon.png"), 
+       dpi = 600, width = 9, height = 5.8)
+
+# Run function - bernoulli
+(ppc_rac2 <- pp_check(y_rac, ypred_bern_raccoon, ppc_dens_overlay) +
+  ggtitle("PPC - Raccoon detection"))
+ggsave(plot = ppc_rac2, filename = paste0(plots_wd, "/ppc_DET_bern_raccoon.png"), 
+       dpi = 600, width = 9, height = 5.8)
+
+
+### marten
+# Extract observed y
+y_marten <- as.vector(species_matrix$Marten)
+
+# extract 50 predicted y
+test <- data.frame(Species = rep("Marten", nrow(preds_tmp[,,1])))
+for(i in 1:dim(preds_tmp)[3]){
+  x <- as.vector(preds_tmp[,,i][,"Marten"])
+  test[,ncol(test)+1] <- x
+  colnames(test)[ncol(test)] <- paste0("marten", i)
+}
+# Probabilities
+ypred_marten <- t(as.matrix(test[,-1]))
+
+# transform into 1/0
+test_bern <- test
+test_bern <- apply(test_bern[,-1],c(1,2), A) # bernoulli: 0/1
+ypred_bern_marten <- t(test_bern)
+
+
+# Run function
+ppc_mart <- pp_check(y_marten, ypred_marten, ppc_dens_overlay) +
+  ggtitle("PPC - Marten detection")
+ggsave(plot = ppc_mart, filename = paste0(plots_wd, "/ppc_DET_marten.png"), 
+       dpi = 600, width = 9, height = 5.8)
+
+# Run function - bernoulli
+(ppc_mart2 <- pp_check(y_marten, ypred_bern_marten, ppc_dens_overlay) +
+  ggtitle("PPC - Marten detection"))
+ggsave(plot = ppc_mart2, filename = paste0(plots_wd, "/ppc_DET_bern_marten.png"), 
+       dpi = 600, width = 9, height = 5.8)
+
+```
+
+
+
+## Beta values
+
+```{r betas}
+Beta.results <- as.data.frame(MCMCsummary(mpost$Beta))
+write.csv(Beta.results, paste0(det_results_wd, "/CTcar_DET_5seasons_beta_coeffients.csv"), row.names = TRUE)
+# Default beta plot in Hmsc package
+postBeta <- getPostEstimate(m, parName = "Beta")
+saveRDS(postBeta, file=paste0(det_results_wd, "/postBeta_5seasons.rds"))
+
+png(paste0(det_results_wd, "/CTcar_DET_5seasons_default_betaplot_support95.png"))
+plotBeta(m, post = postBeta, param = "Support", supportLevel = 0.95)
+dev.off()
+  
+png(paste0(det_results_wd, "/CTcar_DET_5seasons_default_betaplot_support75.png"))
+plotBeta(m, post = postBeta, param = "Support", supportLevel = 0.75)
+dev.off()
+
+# my plots
+# Coef plot for betas for each species
+pdf(paste0(det_plots_wd, "/CTcar_DET_5seasons_beta_coef_plots.pdf"))
+MCMCplot(mpost$Beta, 
+           ref_ovl = TRUE,
+           rank = T,
+           xlab = 'ESTIMATE',
+           sz_labels = 0.3,
+           sz_med = 1,
+           sz_thick = 3,
+           sz_thin = 1,
+           sz_ax = 1,
+           sz_main_txt = 1)
+dev.off()
+
+
+# Print a plot for each predictor
+n.cov <- length(m$covNames) # Number of covariates without the intercept
+  var.code <- vector()
+  for (i in 1:n.cov){
+    var.code[i] <- paste0("C", i)
+  }
+  
+var.name <- as.vector(m$covNames[1:n.cov])
+predictors <- as.data.frame(cbind(var.code, var.name))
+  
+for (i in 1:nrow(predictors)){
+    png(paste0(det_results_wd, "/Betas_covariates_coef_plot_", 
+               var.name[i], "_5seasons.png"), width = 5, 
+        height = 8, units = "in", res = 300, pointsize = 16)
+    MCMCplot(mpost$Beta,
+             params = predictors[i,1],
+             ISB = FALSE,
+             ref_ovl = TRUE,
+             rank = FALSE,
+             xlab = 'ESTIMATE',
+             main = predictors[i,2],
+             sz_labels = 0.5,
+             sz_med = 1,
+             sz_thick = 1,
+             sz_thin = 1,
+             sz_ax = 1,
+             sz_main_txt = 1)
+    dev.off()
+}
+
+```
+
+
+## Extract beta values for manual plotting
+
+From the code object, load the model and then divide the data as one dataset per species, 
+extract the posterior summaries and give the proper names to the variables
+
+```{r}
+# coda object (model output)
+# mpost <- readRDS(paste0(det_results_wd, "/mpost_coda_DET_5seasons.rds"))
+
+# betas (coefficients) for each species
+
+head(mpost$Beta)
+
+# Get species data
+mpost.beta.fox <- mpost$Beta[,grep("Red_fox", colnames(mpost$Beta[[1]]))]
+mpost.beta.raccoon <- mpost$Beta[,grep("Raccoon", colnames(mpost$Beta[[1]]))]
+mpost.beta.marten <- mpost$Beta[,grep("Marten", colnames(mpost$Beta[[1]]))]
+
+head(mpost.beta.marten)
+summary(mpost.beta.marten)
+
+### Rearrange data to new data frame for plotting
+colnames(mpost.beta.fox[[1]])
+
+# new names for the explanatory variables
+my_variables <- c("Intercept", "Garden_size", "Local_tree_cover", "Fence_height",  
+                  "No_compost", "Open_compost", 
+                  "Human_population", "Impervious_surface", "Noise", "Tree_cover", 
+                  "Dist_B", "Spring", "Covid", "Cat")
+
+#rename columns in betas
+for (i in 1:length(mpost.beta.fox)){
+  colnames(mpost.beta.fox[[i]]) <- my_variables
+}
+for (i in 1:length(mpost.beta.raccoon)){
+  colnames(mpost.beta.raccoon[[i]]) <- my_variables
+}
+for (i in 1:length(mpost.beta.marten)){
+  colnames(mpost.beta.marten[[i]]) <- my_variables
+}
+
+# extract values to plot
+# summary(mpost.beta.fox)$statistics
+# summary(mpost.beta.fox)$quantiles
+
+# Put model estimates into temporary data.frames. Add variable "Species" for plotting
+model1Frame <- data.frame(Variable = my_variables,
+                          Coefficient = summary(mpost.beta.fox)$statistics[,1],
+                          CI_low = summary(mpost.beta.fox)$quantiles[,1],
+                          Q_25 = summary(mpost.beta.fox)$quantiles[, 2],
+                          Q_50 = summary(mpost.beta.fox)$quantiles[,3],
+                          Q_75 = summary(mpost.beta.fox)$quantiles[, 4],
+                          CI_high = summary(mpost.beta.fox)$quantiles[,5],
+                          Species = "Fox") 
+
+model2Frame <- data.frame(Variable = my_variables,
+                          Coefficient = summary(mpost.beta.raccoon)$statistics[,1],
+                          CI_low = summary(mpost.beta.raccoon)$quantiles[,1],
+                          Q_25 = summary(mpost.beta.raccoon)$quantiles[, 2],
+                          Q_50 = summary(mpost.beta.raccoon)$quantiles[,3],
+                          Q_75 = summary(mpost.beta.raccoon)$quantiles[, 4],
+                          CI_high = summary(mpost.beta.raccoon)$quantiles[,5],
+                          Species = "Raccoon")
+
+model3Frame <- data.frame(Variable = my_variables,
+                          Coefficient = summary(mpost.beta.marten)$statistics[,1],
+                          CI_low = summary(mpost.beta.marten)$quantiles[,1],
+                          Q_25 = summary(mpost.beta.marten)$quantiles[, 2],
+                          Q_50 = summary(mpost.beta.marten)$quantiles[,3],
+                          Q_75 = summary(mpost.beta.marten)$quantiles[, 4],
+                          CI_high = summary(mpost.beta.marten)$quantiles[,5],
+                          Species = "Marten")
+
+
+# Combine these data.frames
+allModelFrame <- data.frame(rbind(model1Frame, model2Frame, model3Frame)) 
+
+# Relevel factors so they are plotted in the desired order
+allModelFrame$Variable <- factor(allModelFrame$Variable, levels = rev(my_variables))
+allModelFrame$Species <- factor(allModelFrame$Species,levels = c("Raccoon", "Fox", "Marten"))
+summary(allModelFrame)
+# write.csv(allModelFrame, paste0(det_results_wd, "/DET_all_5seasons_ModelFrame.csv"), row.names = FALSE)
+```
+
+
+## Speceis co-occurrences 
+
+We do it throuch species associations in residual random variance
+
+```{r sp associations}
+OmegaCor <- computeAssociations(m)
+class(OmegaCor)
+saveRDS(OmegaCor, file=paste0(det_results_wd, "/OmegaCor_DET_5seasons.rds"))
+
+OmegaCor[[1]]$mean
+OmegaCor[[1]]$support
+
+# Default plot in Hmsc package
+supportLevel <- 0.95
+
+toPlot <- ((OmegaCor[[1]]$support > supportLevel)
+           + (OmegaCor[[1]]$support < (1 - supportLevel)) > 0) * OmegaCor[[1]]$mean
+png(paste0(det_results_wd , "/CTcar_DET_5seasons_default_omegaplot95.png"))
+corrplot(toPlot, method = "color", 
+         col = colorRampPalette(c("blue", "white", "red"))(200),
+         title = paste0("random effect level: ", m$rLNames[1]), 
+         mar = c(0,0,1,0))
+dev.off()
+
+supportLevel <- 0.75
+toPlot <- ((OmegaCor[[1]]$support > supportLevel)
+           + (OmegaCor[[1]]$support < (1 - supportLevel)) > 0) * OmegaCor[[1]]$mean
+png(paste0(det_results_wd, "/CTcar_DET_5seasons_default_omegaplot75.png"))
+corrplot(toPlot, method = "color", 
+         col = colorRampPalette(c("blue", "white", "red"))(200),
+         title = paste0("random effect level: ", m$rLNames[1]), 
+         mar = c(0,0,1,0))
+dev.off()
+
+par(mar = c (5,5,4,5))
+```
+
+
+```{r save associations}
+assoc.mean <- melt(OmegaCor[[1]]$mean)
+assoc.support <- melt(OmegaCor[[1]]$support)
+
+nrow(assoc.mean); nrow(assoc.support)
+
+associations <- cbind.data.frame(assoc.mean, support = assoc.support$value)
+colnames(associations) <- c("species1", "species2", "mean", "support")
+
+associations
+
+write.csv(associations, paste0(det_results_wd, "/UrbanMammals_associations_DET_5seasons.csv"), row.names = FALSE)
+```
+
+## Variance partitioning
+
+The order of the variables, if they are continuous, is 
+1. intercept(this can be in any group)
+2. first variable
+3. second variable
+ETC.
+
+The formulas we used for running the models area: 
+XFormula =  ~ compost + garden_size + Local_tree_cover + fence_height +
+  pop_100 + imperv_100 + noise_100 + tree_cover_100 + d_cityB + season + covid + Cat
+
+```{r variance partitioning}
+# design matrix
+head(m$X)
+
+# Total variance explained by hte model can be partition into the contributions
+# of each fixed effect (or group) and random effect
+# intercept can go in any group. Here in the first to simplify
+# Groups: season, garden, landscape, cats
+VP <- computeVariancePartitioning(m, group = c(1,1,1,1,1,1, 2,2,2,2,2 ,3,4,5), groupnames = c("urban", "garden", "season", "covid", "cats"))
+
+# Save the Variance partitioning info
+VP$vals
+VP$R2T
+
+saveRDS(VP, file = paste0(det_results_wd, "/Varpart_DET_5seasons.rds"))
+
+VP.table <- as.data.frame(VP$vals) 
+VP.table
+write.csv(VP.table, paste0(det_results_wd, "/Varpart_values_DET_5seasons.csv"))
+
+
+# plot var part
+png(paste0(det_results_wd, "/CTcar_Carnivores_DET_5seasons_default_VP.png"), 
+    width = 800)
+plotVariancePartitioning(m, VP = VP, las = 2, cex.names = 0.8)
+title(main = "\n \nDETECTION Urban Mammals")
+dev.off()
+```
+
+
+## Predicted responses 95CI
+
+### Example full community
+```{r}
+m$XFormula
+head(m$X)
+
+Gradient.season <- constructGradient(m, focalVariable = "season")
+predY <- predict(m, XData = Gradient.season$XDataNew, studyDesign = Gradient.season$studyDesignNew, 
+                 ranLevels = Gradient.season$rLNew, expected = FALSE)
+
+# Summed response to season
+plotGradient(m, Gradient.season, pred=predY, measure="S", las=1,
+             showData = TRUE, main='Species richness (measure="S")')
+
+# Species 3
+plotGradient(m, Gradient.season, pred=predY, measure="Y", index=3, las=1,
+             showData = TRUE, main='Focal species occurrence (measure="Y", species = 3)')
+# Community-weighted mean values of traits
+# plotGradient(m, Gradient.season, pred=predY, measure="T", index=2, las=1,
+#              showData = TRUE, main='Mean trait value (measure="T")')
+
+
+# Summed response to tree
+Gradient.tree <- constructGradient(m, focalVariable = "tree_cover_100")
+predY.tree <- predict(m, XData = Gradient.tree$XDataNew, 
+                 studyDesign = Gradient.tree$studyDesignNew, 
+                 ranLevels = Gradient.tree$rLNew, expected = FALSE)
+saveRDS(predY.tree, paste0(det_results_wd, "/pred_response_5seasons_tree.rds"))
+
+plotGradient(m, Gradient.tree, pred=predY.tree, measure="S", las=1,
+             showData = TRUE, main='Total abundance')
+```
+
+### Predicted responses 95CI by species
+
+```{r}
+
+```
+
+
+```{r}
+sessionInfo()
+```
+R version 3.6.3 (2020-02-29)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 10 x64 (build 19041)
+
+Matrix products: default
+
+locale:
+[1] LC_COLLATE=English_Ireland.1252  LC_CTYPE=English_Ireland.1252    LC_MONETARY=English_Ireland.1252
+[4] LC_NUMERIC=C                     LC_TIME=English_Ireland.1252    
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] forcats_0.5.0   stringr_1.4.0   purrr_0.3.4     readr_1.3.1     tidyr_1.1.2     tibble_3.0.3    ggplot2_3.3.2  
+ [8] tidyverse_1.3.0 Hmsc_3.0-11     coda_0.19-3     dplyr_1.0.2    
+
+loaded via a namespace (and not attached):
+ [1] httr_1.4.2         maps_3.3.0         jsonlite_1.7.1     dotCall64_1.0-0    modelr_0.1.8       assertthat_0.2.1  
+ [7] statmod_1.4.34     sp_1.4-2           blob_1.2.1         cellranger_1.1.0   yaml_2.2.1         pillar_1.4.6      
+[13] backports_1.1.10   lattice_0.20-41    quantreg_5.61      glue_1.4.2         pROC_1.16.2        digest_0.6.25     
+[19] rvest_0.3.6        colorspace_1.4-1   htmltools_0.5.0    Matrix_1.2-18      plyr_1.8.6         conquer_1.0.2     
+[25] pkgconfig_2.0.3    broom_0.7.0        SparseM_1.78       haven_2.3.1        snow_0.4-3         scales_1.1.1      
+[31] pracma_2.2.9       MatrixModels_0.4-1 generics_0.1.0     ellipsis_0.3.1     withr_2.3.0        BayesLogit_2.1    
+[37] nnet_7.3-12        cli_2.0.2          magrittr_1.5       crayon_1.3.4       readxl_1.3.1       mcmc_0.9-7        
+[43] evaluate_0.14      fansi_0.4.1        fs_1.5.0           nlme_3.1-144       MASS_7.3-51.5      xml2_1.3.2        
+[49] truncnorm_1.0-8    FNN_1.1.3          tools_3.6.3        hms_0.5.3          lifecycle_0.2.0    matrixStats_0.56.0
+[55] MCMCpack_1.4-9     munsell_0.5.0      reprex_0.3.0       compiler_3.6.3     tinytex_0.26       rlang_0.4.7       
+[61] grid_3.6.3         rstudioapi_0.11    spam_2.5-1         rmarkdown_2.3      gtable_0.3.0       abind_1.4-5       
+[67] DBI_1.1.0          R6_2.4.1           lubridate_1.7.9    knitr_1.30         utf8_1.1.4         ape_5.4-1         
+[73] stringi_1.5.3      parallel_3.6.3     Rcpp_1.0.5         fields_10.3        vctrs_0.3.4        dbplyr_1.4.4      
+[79] tidyselect_1.1.0   xfun_0.17         

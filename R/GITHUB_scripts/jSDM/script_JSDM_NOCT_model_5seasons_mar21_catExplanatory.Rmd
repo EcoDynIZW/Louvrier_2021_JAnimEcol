@@ -1,0 +1,836 @@
+---
+title: "JSDM_nocturnality_5seasons"
+author: "Aimara Planillo"
+date: "3/26/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# **NOCTURNALITY JSDM model** with *5 seasons* 
+
+Fall 2018, Spring 19, Fall 2019, Spring 20 (covid), Fall 20 (covid)
+
+Run JSDM model of carnivore nocturnality (proportion of pictures taken at night: 9pm - 6am)
+from citizen scientists camera traps 
+in their gardens, using package from Ovaskainen/Tikhonov to obtain distributions and
+species associations in Berlin.
+
+Camera traps were set during 5 seasons, one month per season. 
+
+* **Response variable**: 
+  - *Nocturnality*: propotion of pictures of each species (independent events, at least 30 min apart) 
+                    taken at night regarding the total (per camera trap)
+    - Red Fox
+    - Raccoon
+    - Marten (stone marten + pine marten)
+
+* **Explanatory variables**:
+  - *Garden characteristics*:
+    - compost: categorical (no, open, closed)
+    - garden size: continuous (garden area measured citizens)
+    - local tree cover: continuous (tree cover at gardens by citizens)
+    - fence height: continuous (garden fence height by citizens)
+  - *Urban characteristics*:
+    - pop 100: continuous (human population density, n inhabitants, focal mean) 
+    - imperv 100: continuous (impervious surface cover %, focal mean)
+    - noise 100: continuous (noise levels day and night in dB(a), focal mean)
+    - tree cover 100: continuous (tree cover %, focal mean)
+    - distance_border: continuous (distance to city border, meters)
+  - *Season*: categorical (fall, spring)
+  - *covid*: categorical (yes, no)
+  - *(Domestic) Cat* 
+
+  
+
+
+Data prepared by Julie Louvrier. Observations with Na in any explanatory variable 
+have been previously removed. 
+
+Urban characteristics variables scale: **100m resolution** (Focal means by Aimara Planillo)
+
+* **Formula**:
+~ garden_size + Local_tree_cover + fence_height + compost +
+  pop_100 + imperv_100 + noise_100 + tree_cover_100 + d_cityB +
+  season + covid
+  
+* **Random variable**:
+- *NO*: spatial structure of sampling points
+- Camera ID: not repeated
+
+* Phylogeny = **NO**
+
+* Traits: **NO** 
+  
+* **Model characteristics**
+- 250000 samples
+- Thinning: 20
+- Burn-in: 10000
+- n chains: 3
+- Priors: uninformative
+
+
+```{r packages and workspace}
+#Packages and workspace  
+source(paste0(getwd(), "/3_scripts/source_file_lib.R"))
+source(paste0(getwd(), "/3_scripts/source_file_wd.R"))
+```
+
+
+## Load and clean data
+```{r}
+# load species nocturnal nocturnality data 
+file_list <- list.files(data_wd, pattern = c("Noct"))
+species_file <- sort(file_list, decreasing = TRUE)[1]
+
+noct_tmp <- readRDS(file.path(data_wd, species_file))
+head(noct_tmp)
+str(noct_tmp) # 2485 obs. of  20 variables
+
+summary(noct_tmp)
+
+# get number of cameras per season
+noct_tmp %>% 
+  group_by(project_phase) %>% 
+  summarise(n_cam = n_distinct(User_uid)) %>% 
+  ungroup()  
+
+# data divided into weekdays 0/1 (false/true). We pool it together for the whole month
+# by summarizing the nbr_pictures_night column by species, user_uid and project_phase
+
+noct_summary <- noct_tmp %>% 
+  group_by(project_phase, species, User_uid) %>% 
+  summarise(n_night = sum(nbr_pictures_night)) %>% 
+  ungroup()  
+
+noct_tmp[noct_tmp$User_uid == 73,]
+noct_summary[noct_summary$User_uid == 73,]
+
+
+# transform into a site (row) x species (column) matrix
+head(noct_summary)
+noct_sp_matrix <- noct_summary %>% 
+  spread(key = species, value = n_night)
+# change NA values for 0
+noct_sp_matrix[is.na(noct_sp_matrix)] <- 0
+nrow(noct_sp_matrix) # [1] 669
+
+
+
+## Load the use data to get total number of pictures
+use_data <- read.csv(paste0(data_wd, "/Use_envir_alldata_nodupl_noNa_mar21.csv"))
+head(use_data)
+
+# Get new data.frame with the proportions
+
+noct_prop_tmp <- noct_sp_matrix %>% 
+  left_join(use_data[,1:6], by = c("project_phase", "User_uid")) %>% 
+  mutate(Cat.prop = Cat.x/Cat.y, 
+         Fox.prop = Fox.x/Fox.y,
+         Marten.prop = Marten.x/Marten.y,
+         Raccoon.prop = Raccoon.x/Raccoon.y)
+noct_prop_tmp
+
+## load covariates in the appropiate format
+# load envir variables
+envir_file <- list.files(data_wd, pattern = "raster")
+envcov <- readRDS(file.path(data_wd, envir_file))
+head(envcov)
+str(envcov)
+summary(envcov)
+nrow(envcov) # [1] 669
+
+# add env covariates based on user id and project phase
+# and add variables season and covid
+noct_data <- noct_prop_tmp %>% 
+  left_join(envcov, by = c("User_uid", "project_phase")) %>% 
+  mutate(season = case_when(
+    project_phase %in% c(1,3,5) ~ "Fall",
+    project_phase %in% c(2,4) ~ "Spring"),
+    covid = case_when(
+    project_phase %in% c(1,2,3) ~ "No",
+    project_phase %in% c(4,5) ~ "Yes"))
+
+summary(noct_data)
+head(as.data.frame(noct_data))
+
+nrow(noct_data) #[1] 669
+noct_data %>% 
+  group_by(project_phase) %>% 
+  summarise(n_cam = n_distinct(User_uid)) %>% 
+  ungroup()
+
+# write.csv(noct_data, paste0(data_wd, "/Nocturnality_envir_alldata_nodupl_noNa_mar21.csv"), row.names = FALSE)
+# noct_data <- read.csv(paste0(data_wd, "/Nocturnality_envir_alldata_nodupl_noNa_mar21.csv"))
+```
+  project_phase n_cam
+          <dbl> <int>
+1             1   150
+2             2   116
+3             3   133
+4             4   122
+5             5   148
+
+
+## Prepare data for Nocturnality JSDM model
+```{r}
+head(noct_data)
+# response
+noct_prop_matrix <- noct_data %>% 
+  dplyr::select(Fox.prop, Marten.prop, Raccoon.prop) %>% 
+  as.matrix()
+head(noct_prop_matrix)
+
+#####################################
+## Change NA to Zeros for analyses
+#####################################
+# noct_prop_matrix[is.na(noct_prop_matrix)] <- 0
+
+
+# covariates: select env variables 
+covariates_noct <- noct_data %>%
+  ungroup() %>% 
+  dplyr::select(garden_size, Local_tree_cover, fence_height, compost, 
+                pop_100, imperv_100, noise_100, tree_cover_100, distance_border, 
+                season, covid, Cat.prop) %>% 
+  # make all characters factors for running the model
+  mutate(compost = as.factor(compost),
+         season = as.factor(season), 
+         covid = as.factor(covid),
+         Cat.prop = ifelse(is.na(Cat.prop), 0, Cat.prop)) %>%  # Cat proportion NA transformed to zero, so the model works
+  as.data.frame()
+
+
+head(covariates_noct)
+str(covariates_noct)
+```
+
+
+## Set up and Run the model
+```{r}
+# Study design and random effects (no spatial latent variable in this case, just camera id)
+site.id <- as.factor(noct_data$User_uid)
+studyDesign <- data.frame(site = site.id)
+str(studyDesign)
+
+rL <- HmscRandomLevel(units = studyDesign)
+rL$s
+
+# Define MCMC parameters
+thin <- 20
+samples <- 250000
+transient <- 10000
+nChains <- 3
+verbose <- 1000
+
+# samples <- 10000
+# transient <- 500
+# thin = 1
+
+
+# Regression formula for environmental covariates
+head(covariates_noct)
+XFormula_noct = ~ garden_size + Local_tree_cover + fence_height + compost +
+  pop_100 + imperv_100 + noise_100 + tree_cover_100 + distance_border +
+  season + covid + Cat.prop
+
+
+# BINOMIAL DISTRIBUTION: Untransformed data (Proportions)
+## Model scales the data prior to running
+
+# Fit the model
+m <- Hmsc(Y = noct_prop_matrix, XData = covariates_noct, XFormula = XFormula_noct,
+          studyDesign=studyDesign, ranLevels=list(site=rL),
+          # TrData = NA, TrFormula = NA,
+          distr = "probit") # for binomial data
+
+# For repeatability 
+set.seed(111)
+
+# Run Markov Chains
+# test
+m <- sampleMcmc(m, thin = 1, samples = 50)
+
+# Model run
+m <- sampleMcmc(m, thin = thin, samples = samples, transient = transient,
+               nChains = nChains, verbose = verbose,
+               nParallel = 3) # 3 parallel processes 
+
+# Set a name for the model
+filename = paste0(nocturnality2_results_wd, "/CT_carnivores_nocturnality_5seasons_mar21_catexplanatory.rds")
+ 
+#Save the model
+saveRDS(m,file=filename) 
+```
+
+
+###########################
+# Model Check and output
+###########################
+
+### Load the model
+```{r load model}
+filename = paste0(nocturnality2_results_wd, "/CT_carnivores_nocturnality_5seasons_mar21_catexplanatory.rds")
+m <- readRDS(filename)
+```
+
+## Model convergence 
+
+We evaluate MCMC convergence in terms of two kinds of parameters that we are especially interested in:
+the species niches Beta, and the residual species associations Omega. 
+The strength of phylogenetic signal rho and the influence of traits on species niches Gamma were not included in this model
+
+Evaluate convergence: Effective sample size and gelman-rubin diagnostic (potencial reduction factor)
+```{r model convergence}
+mpost <- convertToCodaObject(m)
+
+# Numerical output
+ess.beta <- effectiveSize(mpost$Beta)
+gd.beta <- gelman.diag(mpost$Beta, multivariate = FALSE)$psrf
+ess.omega <- effectiveSize(mpost$Omega[[1]])
+gd.omega <- gelman.diag(mpost$Omega[[1]], multivariate = FALSE)$psrf
+
+convergence.names <- c("ess.beta", "ess.omega", "gd.beta", "gd.omega")
+convergence.list <- list(ess.beta, ess.omega, gd.beta, gd.omega)
+for (i in 1:length(convergence.names)){
+  write.csv(convergence.list[[i]], paste0(nocturnality2_results_wd,
+                                          "/", convergence.names[i], ".csv")) 
+          # row.names = FALSE)
+}
+
+# Graphical output
+png(paste0(nocturnality2_results_wd, "/CTcar_NOCT_5seasons_model_convergence_hist.png"), width = 800, height = 1000,
+    pointsize = 20)
+par(mfrow=c(2,2))
+hist(ess.beta, main = "ess(beta)_CTcar_NOCT_5seasons")
+hist(ess.omega, main = "ess(omega)_CTcar_NOCT_5seasons")
+hist(gd.beta, main = "psrf(beta)_CTcar_NOCT_5seasons")
+hist(gd.omega, main = "psrf(omega)_CTcar_NOCT_5seasons")
+dev.off()
+
+# Save plots of the chains
+MCMCtrace(mpost$Beta, 
+          pdf = TRUE, 
+          open_pdf = FALSE,
+          filename = "CTcar_NOCT_5seasons_MCMCtrace_beta",
+          wd = nocturnality2_results_wd)
+MCMCtrace(mpost$Omega[[1]], 
+          pdf = TRUE, 
+          open_pdf = FALSE,
+          filename = "CTcar_NOCT_5seasons_MCMCtrace_omega",
+          wd = nocturnality2_results_wd)
+
+par(mfrow=c(1,1))
+
+mean(ess.beta)
+# [1] 492833.3
+mean(gd.beta)
+# [1] 1.000043
+mean(ess.omega)
+# [1] 100668.5
+mean(gd.omega)
+# [1] 1.001422
+
+(autocorrBeta <- autocorr(mpost$Beta))
+write.csv(autocorrBeta, paste0(nocturnality2_results_wd,
+                                          "/autocorr_beta.csv"))
+
+(autocorrOmega <- autocorr(mpost$Omega[[1]]))
+write.csv(autocorrOmega, paste0(nocturnality2_results_wd,
+                                          "/autocorr_omega.csv"))
+
+plot(mpost$Beta)
+plot(mpost$Omega[[1]])
+
+saveRDS(mpost, paste0(nocturnality2_results_wd, "/mpost_coda_NOCT_5seasons.rds"))
+# mpost <- readRDS(paste0(nocturnality2_results_wd, "/mpost_coda_NOCT_5seasons.rds"))
+``` 
+
+
+## Model Fit (R2)
+```{r model fit}
+# Explanatory R2. Get predictions for the observed values 
+preds <- computePredictedValues(m, expected = TRUE)
+saveRDS(preds, paste0(nocturnality2_results_wd, "/Preds_model_NOCT_5seasons.rds"))
+# preds <- readRDS(paste0(nocturnality2_results_wd, "/Preds_model_NOCT_5seasons.rds"))
+
+preds.values <- apply(abind(preds,along=3),c(1,2), median) # Median of the predictions
+# write.csv(preds.values, paste0(nocturnality2_results_wd,
+                                # "/Predicted_values_median_CTcar_NOCT_5seasons.csv"))
+# preds.values <- read.csv(paste0(nocturnality2_results_wd,                                 "/Predicted_values_median_CTcar_NOCT_5seasons.csv"))
+
+preds.values.mean <- apply(abind(preds, along = 3), c (1,2), mean) # Mean of the predictions
+# write.csv(preds.values.mean, paste0(nocturnality2_results_wd,
+                                    # "/Predicted_values_mean_CTcar_NOCT_5seasons.csv"))
+
+# R2 with the built in function
+modelr2.explanatory <- evaluateModelFit(hM = m, predY = preds)
+modelr2.explanatory
+
+r2.explanatory.sp <- cbind(as.data.frame(modelr2.explanatory), species = m$spNames)
+r2.explanatory.sp
+# write.csv(r2.explanatory.sp, paste0(nocturnality2_results_wd, "/NOCT_5seasons_explanatory_power.csv"),
+#           row.names = FALSE)
+```
+
+$RMSE
+[1] 0.3289908 0.2724539 0.2459968
+
+$AUC
+[1] 0.9922976 0.9010003 0.7994580
+
+$TjurR2
+[1] 0.15999553 0.06095295 0.03453756
+```{r}
+# AUC of the model
+mean(modelr2.explanatory$AUC)
+# [1] 0.8975853
+
+# R2 of the model
+mean(modelr2.explanatory$TjurR2)
+# [1] 0.08516201
+
+temp.r2 <- cbind.data.frame(r2 = as.numeric(modelr2.explanatory$AUC), 
+                            species = as.character(m$spNames))
+ggplot(data = temp.r2, aes(y=r2, x=species))+
+  geom_point()
+write.csv(modelr2.explanatory, paste0(nocturnality2_results_wd, "/CTcar_NOCT_5seasons_explanatory_R2_default.csv"), 
+          row.names = FALSE)
+
+
+# R2 Manually comparing observed vs predicted
+R2.sp <- matrix(NA, m$ns, 1)
+for (i in 1:m$ns) {
+  R2.sp[i, ] <- cor(preds.values.mean[, i],m$Y[, i], use  = "pairwise.complete.obs")^2
+}
+
+mean(R2.sp, na.rm=TRUE)
+# [1] 0.147485
+
+# Plot of the default R2
+# Plot of the default R2
+ggplot(data = as.data.frame(modelr2.explanatory$SR2), aes(y=modelr2.explanatory$TjurR2, x=temp.r2$species))+
+  geom_point() +
+  xlab("Species") +
+  ylab("R2 for each species") +
+  ggtitle(paste0("Urban Mammals - Default SR2 species \n R2 = ", 
+                   round(mean(modelr2.explanatory$SR2, na.rm = TRUE), 2)))
+ggsave(paste0(nocturnality2_results_wd, "/Plot_R2_species_default_NOCT_5seasons.png"))
+
+
+# Plot of the manual R2
+ggplot(data = as.data.frame(R2.sp), aes(y=V1, x=temp.r2$species))+
+  geom_point() +
+  xlab("Species") +
+  ylab("R2 for each species") +
+  ggtitle(paste0("Urban Mammals - Obs vs pred R2 species \n R2 = ", 
+                   round(mean(R2.sp, na.rm = TRUE), 2)))
+ggsave(paste0(nocturnality2_results_wd, "/Plot_R2_species_manual_NOCT_5seasons.png"))
+```
+
+```{r site R2}
+R2.site <- matrix(NA, m$ny, 1)
+for (i in 1:m$ny) {
+  R2.site[i, ] <- cor(preds.values.mean[i, ], m$Y[i, ])^2
+}
+mean(R2.site, na.rm = TRUE)
+# [1] 0.5628711
+
+
+ggplot(data = as.data.frame(R2.site), aes(y=V1, x=seq(1, nrow(R2.site), by =1)))+
+  geom_point() +
+  xlab("Site index") +
+  ylab("R2 for each species") +
+  ggtitle(paste0("Urban Mammals - Obs vs pred R2 sites \n R2 = ", 
+                   round(mean(R2.site, na.rm = TRUE), 2)))
+ggsave(paste0(nocturnality2_results_wd, "/Plot_R2_sites_manual_NOCT_5seasons.png"))
+
+
+# prevalence and r2
+ggplot(data = as.data.frame(R2.sp), aes(y=V1, x=colSums(m$Y) / m$ny))+
+  geom_point() +
+  xlab("Proportion of Sites") +
+  ylab("R2 for each species") +
+  ggtitle(paste0("Urban Mammals - Explanatory R2: proportion of sites present\n R2 = ", 
+                   round(mean(R2.site, na.rm = TRUE), 2)))
+ggsave(paste0(nocturnality2_results_wd, "/Plot_R2_prevalence_manual_NOCT_5seasons.png"))
+
+
+# compare predicted and observed col sums (one data point is a species)
+png(paste0(nocturnality2_results_wd, '/Plot_Obs_vs_Pred_sp_NOCT_5seasons.png'))
+plot(colSums(preds.values)~colSums(m$Y, na.rm = TRUE),
+     main = paste0("Urban Mammals", " - Observed vs Predicted Species presences \n Mean R2 = ", round(mean(R2.sp, na.rm = TRUE), 2)),
+     xlab = "n observed sites",
+     ylab = "n predicted sites",
+     pch = 16)
+abline(0,1, col = "red", 
+       lty = 4,
+       lwd = 1)
+dev.off()
+```
+
+## Posterior predictive check 
+
+```{r}
+# Select 50 first predictions
+# preds_tmp <- preds[, ,1:50]
+# saveRDS(preds_tmp, paste0(nocturnality2_results_wd, "/preds_ppc_NOCT_5seasons.rds"))
+preds_tmp <- readRDS(paste0(nocturnality2_results_wd, "/preds_ppc_NOCT_5seasons.rds"))
+head(preds_tmp[,,1])
+
+noct_data <- read.csv(paste0(data_wd, "/Nocturnality_envir_alldata_nodupl_noNa_mar21.csv"))
+head(noct_data)
+# response
+noct_prop_matrix <- noct_data %>% 
+  dplyr::select(Fox.prop, Marten.prop, Raccoon.prop) 
+
+# change NA to 0
+noct_prop_matrix[is.na(noct_prop_matrix)] <- 0
+head(noct_prop_matrix)
+
+
+### red fox
+# Extract observed y
+y_fox <- as.vector(noct_prop_matrix$Fox.prop)
+
+# extract 50 predicted y
+test <- data.frame(Species = rep("Red_fox", nrow(preds_tmp[,,1])))
+for(i in 1:dim(preds_tmp)[3]){
+  x <- as.vector(preds_tmp[,,i][,"Fox.prop"])
+  test[,ncol(test)+1] <- x
+  colnames(test)[ncol(test)] <- paste0("fox", i)
+}
+ypred_fox <- t(as.matrix(test[,-1]))
+
+# Run function
+ppc_fox <- pp_check(y_fox, ypred_fox, ppc_dens_overlay) +
+  ggtitle("PPC - Fox nocturnality")
+ggsave(plot = ppc_fox, filename = paste0(plots_wd, "/ppc_NOCT_fox.png"), 
+       dpi = 600, width = 9, height = 5.8)
+
+### raccoon
+# Extract observed y
+y_rac <- as.vector(noct_prop_matrix$Raccoon.prop)
+
+# extract 50 predicted y
+test <- data.frame(Species = rep("Raccoon", nrow(preds_tmp[,,1])))
+for(i in 1:dim(preds_tmp)[3]){
+  x <- as.vector(preds_tmp[,,i][,"Raccoon.prop"])
+  test[,ncol(test)+1] <- x
+  colnames(test)[ncol(test)] <- paste0("raccoon", i)
+}
+ypred_raccoon <- t(as.matrix(test[,-1]))
+
+# Run function
+ppc_rac <- pp_check(y_rac, ypred_raccoon, ppc_dens_overlay) +
+  ggtitle("PPC - Raccoon nocturnality")
+ggsave(plot = ppc_rac, filename = paste0(plots_wd, "/ppc_NOCT_raccoon.png"), 
+       dpi = 600, width = 9, height = 5.8)
+
+
+### marten
+# Extract observed y
+y_marten <- as.vector(noct_prop_matrix$Marten.prop)
+
+# extract 50 predicted y
+test <- data.frame(Species = rep("Marten", nrow(preds_tmp[,,1])))
+for(i in 1:dim(preds_tmp)[3]){
+  x <- as.vector(preds_tmp[,,i][,"Marten.prop"])
+  test[,ncol(test)+1] <- x
+  colnames(test)[ncol(test)] <- paste0("marten", i)
+}
+ypred_marten <- t(as.matrix(test[,-1]))
+
+# Run function
+ppc_mart <- pp_check(y_marten, ypred_marten, ppc_dens_overlay) +
+  ggtitle("PPC - Marten nocturnality")
+ggsave(plot = ppc_mart, filename = paste0(plots_wd, "/ppc_NOCT_marten.png"), 
+       dpi = 600, width = 9, height = 5.8)
+```
+
+
+## Beta values
+
+```{r betas}
+Beta.results <- as.data.frame(MCMCsummary(mpost$Beta))
+write.csv(Beta.results, paste0(nocturnality2_results_wd, "/CTcar_NOCT_5seasons_beta_coeffients.csv"), row.names = TRUE)
+# Default beta plot in Hmsc package
+postBeta <- getPostEstimate(m, parName = "Beta")
+saveRDS(postBeta, file=paste0(nocturnality2_results_wd, "/postBeta_5seasons.rds"))
+
+png(paste0(nocturnality2_results_wd, "/CTcar_NOCT_5seasons_default_betaplot_support95.png"))
+plotBeta(m, post = postBeta, param = "Support", supportLevel = 0.95)
+dev.off()
+  
+png(paste0(nocturnality2_results_wd, "/CTcar_NOCT_5seasons_default_betaplot_support75.png"))
+plotBeta(m, post = postBeta, param = "Support", supportLevel = 0.75)
+dev.off()
+
+# my plots
+# Coef plot for betas for each species
+pdf(paste0(nocturnality2_results_wd, "/CTcar_NOCT_5seasons_beta_coef_plots.pdf"))
+MCMCplot(mpost$Beta, 
+           ref_ovl = TRUE,
+           rank = T,
+           xlab = 'ESTIMATE',
+           sz_labels = 0.3,
+           sz_med = 1,
+           sz_thick = 3,
+           sz_thin = 1,
+           sz_ax = 1,
+           sz_main_txt = 1)
+dev.off()
+
+
+# Print a plot for each predictor
+n.cov <- length(m$covNames) # Number of covariates without the intercept
+  var.code <- vector()
+  for (i in 1:n.cov){
+    var.code[i] <- paste0("C", i)
+  }
+  
+var.name <- as.vector(m$covNames[1:n.cov])
+predictors <- as.data.frame(cbind(var.code, var.name))
+  
+for (i in 1:nrow(predictors)){
+    png(paste0(nocturnality2_results_wd, "/Betas_covariates_coef_plot_", 
+               var.name[i], "_5seasons.png"), width = 5, 
+        height = 8, units = "in", res = 300, pointsize = 16)
+    MCMCplot(mpost$Beta,
+             params = predictors[i,1],
+             ISB = FALSE,
+             ref_ovl = TRUE,
+             rank = FALSE,
+             xlab = 'ESTIMATE',
+             main = predictors[i,2],
+             sz_labels = 0.5,
+             sz_med = 1,
+             sz_thick = 1,
+             sz_thin = 1,
+             sz_ax = 1,
+             sz_main_txt = 1)
+    dev.off()
+}
+
+```
+
+## Extract beta values for manual plotting
+
+From the code object, load the model and then divide the data as one dataset per species, 
+extract the posterior summaries and give the proper names to the variables
+
+```{r}
+# coda object (model output)
+# mpost <- readRDS(paste0(nocturnality2_results_wd, "/mpost_coda_NOCT_5seasons.rds"))
+
+# betas (coefficients) for each species
+head(mpost$Beta)
+
+# Get species data
+mpost.beta.fox <- mpost$Beta[,grep("Fox", colnames(mpost$Beta[[1]]))]
+mpost.beta.raccoon <- mpost$Beta[,grep("Raccoon", colnames(mpost$Beta[[1]]))]
+mpost.beta.marten <- mpost$Beta[,grep("Marten", colnames(mpost$Beta[[1]]))]
+
+head(mpost.beta.marten)
+summary(mpost.beta.marten)
+
+### Rearrange data to new data frame for plotting
+colnames(mpost.beta.fox[[1]])
+
+# new names for the explanatory variables
+my_variables <- c("Intercept", "Garden_size", "Local_tree_cover", "Fence_height",  
+                  "No_compost", "Open_compost", 
+                  "Human_population", "Impervious_surface", "Noise", "Tree_cover", 
+                  "Dist_B", "Spring", "Covid", "Cat")
+
+#rename columns in betas
+for (i in 1:length(mpost.beta.fox)){
+  colnames(mpost.beta.fox[[i]]) <- my_variables
+}
+for (i in 1:length(mpost.beta.raccoon)){
+  colnames(mpost.beta.raccoon[[i]]) <- my_variables
+}
+for (i in 1:length(mpost.beta.marten)){
+  colnames(mpost.beta.marten[[i]]) <- my_variables
+}
+
+# extract values to plot
+# summary(mpost.beta.fox)$statistics
+# summary(mpost.beta.fox)$quantiles
+
+# Put model estimates into temporary data.frames. Add variable "Species" for plotting
+model1Frame <- data.frame(Variable = my_variables,
+                          Coefficient = summary(mpost.beta.fox)$statistics[,1],
+                          CI_low = summary(mpost.beta.fox)$quantiles[,1],
+                          Q_25 = summary(mpost.beta.fox)$quantiles[, 2],
+                          Q_50 = summary(mpost.beta.fox)$quantiles[,3],
+                          Q_75 = summary(mpost.beta.fox)$quantiles[, 4],
+                          CI_high = summary(mpost.beta.fox)$quantiles[,5],
+                          Species = "Fox") 
+
+model2Frame <- data.frame(Variable = my_variables,
+                          Coefficient = summary(mpost.beta.raccoon)$statistics[,1],
+                          CI_low = summary(mpost.beta.raccoon)$quantiles[,1],
+                          Q_25 = summary(mpost.beta.raccoon)$quantiles[, 2],
+                          Q_50 = summary(mpost.beta.raccoon)$quantiles[,3],
+                          Q_75 = summary(mpost.beta.raccoon)$quantiles[, 4],
+                          CI_high = summary(mpost.beta.raccoon)$quantiles[,5],
+                          Species = "Raccoon")
+
+model3Frame <- data.frame(Variable = my_variables,
+                          Coefficient = summary(mpost.beta.marten)$statistics[,1],
+                          CI_low = summary(mpost.beta.marten)$quantiles[,1],
+                          Q_25 = summary(mpost.beta.marten)$quantiles[, 2],
+                          Q_50 = summary(mpost.beta.marten)$quantiles[,3],
+                          Q_75 = summary(mpost.beta.marten)$quantiles[, 4],
+                          CI_high = summary(mpost.beta.marten)$quantiles[,5],
+                          Species = "Marten")
+
+
+# Combine these data.frames
+allModelFrame <- data.frame(rbind(model1Frame, model2Frame, model3Frame)) 
+
+# Relevel factors so they are plotted in the desired order
+allModelFrame$Variable <- factor(allModelFrame$Variable, levels = rev(my_variables))
+allModelFrame$Species <- factor(allModelFrame$Species,levels = c("Raccoon", "Fox", "Marten"))
+summary(allModelFrame)
+write.csv(allModelFrame, paste0(nocturnality2_results_wd, "/NOCT_all_5seasons_ModelFrame.csv"), row.names = FALSE)
+```
+
+
+## Speceis co-occurrences 
+
+We do it throuch species associations in residual random variance
+
+```{r sp associations}
+OmegaCor <- computeAssociations(m)
+class(OmegaCor)
+saveRDS(OmegaCor, file=paste0(nocturnality2_results_wd, "/OmegaCor_NOCT_5seasons.rds"))
+
+OmegaCor[[1]]$mean
+OmegaCor[[1]]$support
+
+# Default plot in Hmsc package
+supportLevel <- 0.95
+
+toPlot <- ((OmegaCor[[1]]$support > supportLevel)
+           + (OmegaCor[[1]]$support < (1 - supportLevel)) > 0) * OmegaCor[[1]]$mean
+png(paste0(nocturnality2_results_wd , "/CTcar_NOCT_5seasons_default_omegaplot95.png"))
+corrplot(toPlot, method = "color", 
+         col = colorRampPalette(c("blue", "white", "red"))(200),
+         title = paste0("random effect level: ", m$rLNames[1]), 
+         mar = c(0,0,1,0))
+dev.off()
+
+supportLevel <- 0.75
+toPlot <- ((OmegaCor[[1]]$support > supportLevel)
+           + (OmegaCor[[1]]$support < (1 - supportLevel)) > 0) * OmegaCor[[1]]$mean
+png(paste0(nocturnality2_results_wd, "/CTcar_NOCT_5seasons_default_omegaplot75.png"))
+corrplot(toPlot, method = "color", 
+         col = colorRampPalette(c("blue", "white", "red"))(200),
+         title = paste0("random effect level: ", m$rLNames[1]), 
+         mar = c(0,0,1,0))
+dev.off()
+
+par(mar = c (5,5,4,5))
+```
+
+
+```{r save associations}
+assoc.mean <- melt(OmegaCor[[1]]$mean)
+assoc.support <- melt(OmegaCor[[1]]$support)
+
+nrow(assoc.mean); nrow(assoc.support)
+
+associations <- cbind.data.frame(assoc.mean, support = assoc.support$value)
+colnames(associations) <- c("species1", "species2", "mean", "support")
+
+associations
+
+write.csv(associations, paste0(nocturnality2_results_wd, "/UrbanMammals_associations_NOCT_5seasons.csv"), row.names = FALSE)
+```
+
+## Variance partitioning
+
+The order of the variables, if they are continuous, is 
+1. intercept(this can be in any group)
+2. first variable
+3. second variable
+ETC.
+
+The formulas we used for running the models area: 
+XFormula =  ~ compost + garden_size + Local_tree_cover + fence_height +
+  pop_100 + imperv_100 + noise_100 + tree_cover_100 + d_cityB + season + covid + Cat
+
+```{r variance partitioning}
+# design matrix
+head(m$X)
+
+# Total variance explained by hte model can be partition into the contributions
+# of each fixed effect (or group) and random effect
+# intercept can go in any group. Here in the first to simplify
+# Groups: season, garden, landscape, cats
+VP <- computeVariancePartitioning(m, group = c(1,1,1,1,1,1, 2,2,2,2,2 ,3,4,5), groupnames = c("urban", "garden", "season", "covid", "cats"))
+
+# Save the Variance partitioning info
+VP$vals
+VP$R2T
+
+saveRDS(VP, file = paste0(nocturnality2_results_wd, "/Varpart_NOCT_5seasons.rds"))
+
+VP.table <- as.data.frame(VP$vals) 
+VP.table
+write.csv(VP.table, paste0(nocturnality2_results_wd, "/Varpart_values_NOCT_5seasons.csv"))
+
+
+# plot var part
+png(paste0(nocturnality2_results_wd, "/CTcar_Carnivores_NOCT_5seasons_default_VP.png"), 
+    width = 800)
+plotVariancePartitioning(m, VP = VP, las = 2, cex.names = 0.8)
+title(main = "\n \nNOCT INTENSITY Urban Mammals")
+dev.off()
+```
+
+
+## Predicted responses 95CI
+
+### Example full community
+```{r}
+m$XFormula
+head(m$X)
+
+Gradient.season <- constructGradient(m, focalVariable = "season")
+predY <- predict(m, XData = Gradient.season$XDataNew, studyDesign = Gradient.season$studyDesignNew, 
+                 ranLevels = Gradient.season$rLNew, expected = FALSE)
+
+# Summed response to season
+plotGradient(m, Gradient.season, pred=predY, measure="S", las=1,
+             showData = TRUE, main='Species richness (measure="S")')
+
+# Species 3
+plotGradient(m, Gradient.season, pred=predY, measure="Y", index=3, las=1,
+             showData = TRUE, main='Focal species occurrence (measure="Y", species = 3)')
+# Community-weighted mean values of traits
+# plotGradient(m, Gradient.season, pred=predY, measure="T", index=2, las=1,
+#              showData = TRUE, main='Mean trait value (measure="T")')
+
+
+# Summed response to cat
+Gradient.tree <- constructGradient(m, focalVariable = "tree_cover_100", non.focalVariables = 1)
+predY.tree <- predict(m, Gradient=Gradient.tree)
+plotGradient(m, Gradient.tree, pred=predY.tree, measure="Y", index = 1, 
+             showData = TRUE, main='Response to tree cover')
+```
+
+### Predicted responses 95CI by species
+
+```{r}
+
+```
+
+
+

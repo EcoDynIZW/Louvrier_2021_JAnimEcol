@@ -1,0 +1,14 @@
+Package: 
+    Louvrier_Temporal_analyses_urban_carnivores_CT
+Title: Mesocarnivore community temporal analyses based on camera trap data
+Version: 0.0.0.9000
+Authors@R: person('Julie', 'Louvrier', email = 'louvrier@izw-berlin.de', role = c('cre', 'aut'))
+Description: Analyses of temporal delay of the Red Fox, Raccoon,
+  Marten and Cat after the detection of the picture of another one of those species.
+  In addition, analyses of temporal activities overlaps depending on the season (fall 2018, spring 2019, fall 2019 and soring 2020
+License: `use_mit_license()`, `use_gpl3_license()` or friends to
+    pick a license
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.1

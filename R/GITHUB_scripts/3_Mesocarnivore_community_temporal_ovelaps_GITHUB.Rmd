@@ -1,0 +1,1985 @@
+---
+title: "Mesocarnivore community activity overlaps" ## name of your project
+author: "Julie Louvrier, Aimara Planillo, Stephanie Kramer-Schadt"                     ## your name(s)
+date: "`r Sys.Date()`"                  ## current date
+output:
+  rmdformats::readthedown:
+    code_folding: hide                  ## hide or show code by default?
+    toc_depth: 3                        ## 3-level TOC
+---
+
+
+```{r setup, include=FALSE}
+## You can ignore this chunk in most cases
+## If you want to modify chunk options, you can do it here for all chunks or
+## add the options in the repsective chunk header, e.g. `{r, message = FALSE}`
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE,
+                      fig.width = 9, fig.height = 6, dpi = 500, 
+                      retina = 1, fig.showtext = TRUE)
+```
+
+* **Research question:do urban mesocarnivores experience temporal partitioning in gardens? **
+* **Study area: Berlin fall 2018, spring 2019, fall 2019, spring 2020, fall 2020**
+* **Data: all seasons detection histories** 
+
+
+# Setup
+### Packages
+
+```{r packages}
+rm(list=ls())
+## for non-CRAN packages please keep install instruction
+## but commented so it is not run each time, e.g.
+# devtools::install_github("EcoDynIZW/template")
+# install.packages("remotes")
+# remotes::install_github("carlopacioni/camtrapRdeluxe")
+# 
+# install.packages("rjags", repo = "https://mac.r-project.org")
+# install.packages(c("rgdal","sf"),"https://mac.R-project.org")
+
+## libraries used in this script
+## please add ALL LIBRARIES NEEDED HERE
+## please remove libraries from the list that are not needed anymore 
+## at a later stage
+#### load required libraries ####
+package.list=c("bayestestR",
+               "camtrapR",
+               #"camtrapRdeluxe",
+               "car",
+               "circular",
+               "dplyr",
+               "evaluate",
+               "gdata",
+               "GISTools",
+               "ggplot2",
+               "ggpubr",
+               "here",
+               "janitor",
+               "insight",
+               "knitr",
+               "maptools",
+               "MASS",
+               "optimbase",
+               "plyr",
+               "raster",
+               "RColorBrewer",
+               "readxl",
+               #"rgdal",
+               "rgeos",
+               #"rjags",
+               "rlecuyer",
+               "rstanarm",
+               "showtext",
+               #"sf",
+               "sjlabelled",
+               "sjmisc",
+               "sjPlot",
+               "snowfall",
+               "sp",
+               "stringr",
+               "tidyverse",
+               "wesanderson"
+               )
+
+for (package in package.list) {
+  if (!require(package, character.only=T, quietly=T)) {
+    install.packages(package)
+    library(package, character.only=T)
+  }
+}
+```
+
+### Workspace
+```{r}
+WorkDir <- here::here()
+
+procdata_wd <- file.path(WorkDir, "output/data-proc/temporal_processed_data")
+plots_wd <- file.path(WorkDir, "plots/temp")
+```
+
+### Loading data
+```{r}
+###activity pattern analyses ####
+#loading data
+
+CT_act_date_formated <- readRDS(here::here("output", "data-proc", "temporal_processed_data","Louvrier_2021_JAE_UrbanMesocarnivores_Camera_detections_Dryad2021_11_05.RDS"))
+
+CT_act_date_formated$DateTimeOriginal <- as.character(CT_act_date_formated$DateTimeOriginal)
+```
+
+#All CTs
+### comparison between fall and spring
+
+```{r}
+####we will start with the simpliest : activity patterns 
+###activity pattern analyses ####
+#prep data
+CT_Fall <- CT_act_date_formated %>% filter(Season == 1 | Season == 3 | Season == 5)
+CT_Spring <- CT_act_date_formated %>% filter(Season == 2 | Season == 4)
+
+
+#selecting the mesocarnivores
+mesocarn_Fall <- CT_Fall %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+mesocarn_Spring <- CT_Spring %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+``` 
+
+##Activity overlapses
+```{r}
+####   activity overlapses   ####
+mesocarn_Fall$Station <- as.character(mesocarn_Fall$Station)
+mesocarn_Spring$Station <- as.character(mesocarn_Spring$Station)
+
+#now we take the columns of interest
+d1_Fall <- mesocarn_Fall %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+d1_Spring <- mesocarn_Spring %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+
+
+```
+
+
+#### Cat and Fox Fall
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+color_list <- c("#29AF7FFF", "#BBDF27FF", "#2D718EFF", "#482576FF")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_Fall
+
+d_overlap_catfoxFall <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.57" 
+
+plot_overlap <- function(speciesA_for_activity, speciesB_for_activity, dhat, d_overlap)
+  {
+  col1 <- color_list[which(specieslist == speciesA_for_activity)]
+  col2 <- color_list[which(specieslist == speciesB_for_activity)]
+
+  speciesA <- specieslist_english[which(specieslist == speciesA_for_activity)]
+  speciesB <- specieslist_english[which(specieslist == speciesB_for_activity)]
+
+  #cat and cat Dhat1 = 0.89
+  A <- cbind(d_overlap[,c(1:2)], species = speciesA_for_activity)
+  B <- cbind (d_overlap[,c(1,3)], species = speciesB_for_activity)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+ 
+  # A dataframe for annotations
+  annot <- data.frame(
+    text = c(speciesA, speciesB),
+    x = c(4, 4),
+    y = c(0.18, 0.16))
+
+  line_A <- data.frame(x = c(0,1,3.5),
+                       y = c(0.18,0.18,0.18))
+
+  line_B <- data.frame(x = c(0,1,3.5),
+                       y = c(0.16,0.16,0.16))
+
+  plot <- ggplot() +
+    # first species
+    geom_line(data=A, aes(x=x, y=value), color = col1) + 
+    # scale_color_manual(values = col1) +
+    # labs(color = 'Y series') +
+    geom_area(data=A, aes(x=x, y=value), fill = col1, alpha = 0.6) + 
+    geom_line(data=line_A, aes(x = x, y = y), col = col1, alpha = 0.6, size = 7) +
+  
+    # second
+    geom_line(data=B, aes(x=x, y=value), color = col2) +
+    geom_area(data=B, aes(x=x, y=value), fill = col2, alpha = 0.6) +
+    geom_line(data=line_B, aes(x = x, y = y), col = col2, alpha = 0.6, size = 7) +
+    ggtitle(paste0("Activity patterns of\n",speciesA, " and ",speciesB)) +
+    theme(plot.title = element_text(size = 5)) +   xlab("Time") +
+    ylab("Density")+
+    theme_classic() +
+    annotate("text", label = paste0("Dhat1 =", dhat), x = 12, y = 0.12) +
+    geom_text(data=annot, aes(x=x, y=y, label=text), colour="black", hjust=0, size=3.5) +
+    theme(
+      legend.position="none"
+    )
+
+  return(plot)
+  }
+
+catfoxFall <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catfoxFall)
+
+```
+
+
+
+#### Cat and Marten Fall
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_Fall
+
+d_overlap_catmartenFall <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.46"
+
+catmartenFall <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catmartenFall)
+
+```
+
+#### Cat and Raccoon Fall
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Waschbär"    # 
+dataf <- d1_Fall
+
+d_overlap_catraccoonFall <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.47"
+
+catraccoonFall <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catraccoonFall)
+
+```
+
+#### Raccoon and Fox Fall
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_Fall
+
+d_overlap_raccoonfoxFall <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.84"
+
+raccoonfoxFall <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonfoxFall)
+
+```
+
+#### Raccoon and Marten Fall
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_Fall
+
+d_overlap_raccoonmartenFall <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.87"
+
+raccoonmartenFall <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonmartenFall)
+
+```
+
+#### Fox and Marten Fall
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Rotfuchs"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_Fall
+
+d_overlap_foxmartenFall <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.85"
+
+foxmartenFall <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_foxmartenFall)
+
+```
+
+
+### Plot all of those together 
+```{r}
+
+fall <- ggarrange(catfoxFall, 
+                  catmartenFall, 
+                  catraccoonFall, 
+                  raccoonfoxFall,
+                  raccoonmartenFall, 
+                  foxmartenFall
+)
+fall
+annotate_figure(fall, text_grob("Fall", size = 14))
+
+ggsave(paste0(plots_wd, "/overlapses_fall", gsub("-", "_", Sys.Date()),".png"), height=8, width=9, units='in', dpi=600)
+
+```
+
+
+
+#### Cat and Fox Spring
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_Spring
+
+d_overlap_catfoxSpring <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.65"
+
+catfoxSpring <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catfoxSpring)
+
+```
+
+
+
+#### Cat and Marten Spring
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_Spring
+
+d_overlap_catmartenSpring <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.53"
+
+catmartenSpring <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catmartenSpring)
+
+```
+
+#### Cat and Raccoon Spring
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Waschbär"    # 
+dataf <- d1_Spring
+
+d_overlap_catraccoonSpring <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.52"
+
+catraccoonSpring <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catraccoonSpring)
+
+```
+
+#### Raccoon and Fox Spring
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_Spring
+
+d_overlap_raccoonfoxSpring <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.82"
+
+raccoonfoxSpring <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonfoxSpring)
+
+```
+
+#### Raccoon and Marten Spring
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_Spring
+
+d_overlap_raccoonmartenSpring <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.94"
+
+raccoonmartenSpring <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonmartenSpring)
+
+```
+
+#### Fox and Marten Spring
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Rotfuchs"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_Spring
+
+d_overlap_foxmartenSpring <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.84"
+
+foxmartenSpring <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_foxmartenSpring)
+
+```
+
+
+### Plot all of those together 
+```{r}
+
+Spring <- ggarrange(catfoxSpring, 
+                  catmartenSpring, 
+                  catraccoonSpring, 
+                  raccoonfoxSpring,
+                  raccoonmartenSpring, 
+                  foxmartenSpring
+)
+Spring
+annotate_figure(Spring, text_grob("Spring", size = 14))
+
+ggsave(paste0(plots_wd, "/overlapses_Spring", gsub("-", "_", Sys.Date()),".png"), height=8, width=9, units='in', dpi=600)
+
+```
+
+
+### comparison between Covid and NoCovid
+
+```{r}
+####we will start with the simpliest : activity patterns 
+###activity pattern analyses ####
+#prep data
+CT_Covid_form = CT_act_date_formated %>% mutate(covid = factor(ifelse(Season == "1"| Season == "2"| Season == "3", "0", "1")))
+
+CT_Covid <- CT_Covid_form %>% filter(covid == 1)
+CT_NoCovid <- CT_Covid_form %>% filter(covid == 0)
+
+#selecting the mesocarnivores
+mesocarn_Covid <- CT_Covid %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+mesocarn_NoCovid <- CT_NoCovid %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+``` 
+
+##Activity overlapses
+```{r}
+####   activity overlapses   ####
+mesocarn_Covid$Station <- as.character(mesocarn_Covid$Station)
+mesocarn_NoCovid$Station <- as.character(mesocarn_NoCovid$Station)
+
+#now we take the columns of interest
+d1_Covid <- mesocarn_Covid %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+d1_NoCovid <- mesocarn_NoCovid %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+
+
+```
+
+
+#### Cat and Fox Covid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_Covid
+
+d_overlap_catfoxCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.64"
+
+catfoxCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catfoxCovid)
+
+```
+
+
+
+#### Cat and Marten Covid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_Covid
+
+d_overlap_catmartenCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.53"
+
+catmartenCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catmartenCovid)
+
+```
+
+#### Cat and Raccoon Covid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Waschbär"    # 
+dataf <- d1_Covid
+
+d_overlap_catraccoonCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.56"
+
+catraccoonCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catraccoonCovid)
+
+```
+
+#### Raccoon and Fox Covid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_Covid
+
+d_overlap_raccoonfoxCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.89"
+
+raccoonfoxCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonfoxCovid)
+
+```
+
+#### Raccoon and Marten Covid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_Covid
+
+d_overlap_raccoonmartenCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.94"
+
+raccoonmartenCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonmartenCovid)
+
+```
+
+#### Fox and Marten Covid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Rotfuchs"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_Covid
+
+d_overlap_foxmartenCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.86"
+
+foxmartenCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_foxmartenCovid)
+
+```
+
+
+### Plot all of those together 
+```{r}
+
+Covid <- ggarrange(catfoxCovid, 
+                  catmartenCovid, 
+                  catraccoonCovid, 
+                  raccoonfoxCovid,
+                  raccoonmartenCovid, 
+                  foxmartenCovid
+)
+Covid
+annotate_figure(Covid, text_grob("Covid", size = 14))
+
+ggsave(paste0(plots_wd, "/overlapses_Covid", gsub("-", "_", Sys.Date()),".png"), height=8, width=9, units='in', dpi=600)
+
+```
+
+
+
+#### Cat and Fox NoCovid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_NoCovid
+
+d_overlap_catfoxNoCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.60"
+
+catfoxNoCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catfoxNoCovid)
+
+```
+
+
+
+#### Cat and Marten NoCovid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_NoCovid
+
+d_overlap_catmartenNoCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.49"
+
+catmartenNoCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catmartenNoCovid)
+
+```
+
+#### Cat and Raccoon NoCovid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Waschbär"    # 
+dataf <- d1_NoCovid
+
+d_overlap_catraccoonNoCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.48"
+
+catraccoonNoCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catraccoonNoCovid)
+
+```
+
+#### Raccoon and Fox NoCovid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_NoCovid
+
+d_overlap_raccoonfoxNoCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.81"
+
+raccoonfoxNoCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonfoxNoCovid)
+
+```
+
+#### Raccoon and Marten NoCovid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_NoCovid
+
+d_overlap_raccoonmartenNoCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.87"
+
+raccoonmartenNoCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonmartenNoCovid)
+
+```
+
+#### Fox and Marten NoCovid
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Rotfuchs"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_NoCovid
+
+d_overlap_foxmartenNoCovid <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.87"
+
+foxmartenNoCovid <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_foxmartenNoCovid)
+
+```
+
+
+### Plot all of those together 
+```{r}
+
+NoCovid <- ggarrange(catfoxNoCovid, 
+                  catmartenNoCovid, 
+                  catraccoonNoCovid, 
+                  raccoonfoxNoCovid,
+                  raccoonmartenNoCovid, 
+                  foxmartenNoCovid
+)
+NoCovid
+annotate_figure(NoCovid, text_grob("NoCovid", size = 14))
+
+ggsave(paste0(plots_wd, "/overlapses_NoCovid", gsub("-", "_", Sys.Date()),".png"), height=8, width=9, units='in', dpi=600)
+
+```
+
+
+### All seasons
+
+```{r}
+####we will start with the simpliest : activity patterns 
+###activity pattern analyses ####
+#prep data
+CT_All_Seasons <- CT_act_date_formated 
+
+
+#selecting the mesocarnivores
+mesocarn_All_Seasons <- CT_All_Seasons %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+
+``` 
+
+##Activity overlapses
+```{r}
+####   activity overlapses   ####
+mesocarn_All_Seasons$Station <- as.character(mesocarn_All_Seasons$Station)
+
+#now we take the columns of interest
+d1_All_Seasons <- mesocarn_All_Seasons %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+
+
+```
+
+
+#### Cat and Fox All_Seasons
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_All_Seasons
+
+d_overlap_catfoxAll_Seasons <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.61"
+
+catfoxAll_Seasons <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catfoxAll_Seasons)
+
+```
+
+
+
+#### Cat and Marten All_Seasons
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_All_Seasons
+
+d_overlap_catmartenAll_Seasons <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.50"
+
+catmartenAll_Seasons <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catmartenAll_Seasons)
+
+```
+
+#### Cat and Raccoon All_Seasons
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Waschbär"    # 
+dataf <- d1_All_Seasons
+
+d_overlap_catraccoonAll_Seasons <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.51"
+
+catraccoonAll_Seasons <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_catraccoonAll_Seasons)
+
+```
+
+#### Raccoon and Fox All_Seasons
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+dataf <- d1_All_Seasons
+
+d_overlap_raccoonfoxAll_Seasons <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.85"
+
+raccoonfoxAll_Seasons <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonfoxAll_Seasons)
+
+```
+
+#### Raccoon and Marten All_Seasons
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Waschbär"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_All_Seasons
+
+d_overlap_raccoonmartenAll_Seasons <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.93"
+
+raccoonmartenAll_Seasons <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_raccoonmartenAll_Seasons)
+
+```
+
+#### Fox and Marten All_Seasons
+```{r}
+
+#------------------------------------------------------------------------------------------------#
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "Rotfuchs"    # 
+speciesB_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+dataf <- d1_All_Seasons
+
+d_overlap_foxmartenAll_Seasons <- activityOverlap(recordTable = dataf,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+
+dhat <- "0.87"
+
+foxmartenAll_Seasons <- plot_overlap(speciesA_for_activity,speciesB_for_activity, dhat, d_overlap_foxmartenAll_Seasons)
+
+```
+
+
+### Plot all of those together 
+```{r}
+
+All_Seasons <- ggarrange(catfoxAll_Seasons, 
+                  catmartenAll_Seasons, 
+                  catraccoonAll_Seasons, 
+                  raccoonfoxAll_Seasons,
+                  raccoonmartenAll_Seasons, 
+                  foxmartenAll_Seasons
+)
+All_Seasons
+annotate_figure(All_Seasons, text_grob("All Seasons", size = 14))
+
+ggsave(paste0(plots_wd, "/overlapses_All_Seasons", gsub("-", "_", Sys.Date()),".png"), height=8, width=9, units='in', dpi=600)
+
+```
+
+#Circular plots !! 
+#during No covid
+```{r}
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+speciesC_for_activity <- "Waschbär"    # 
+speciesD_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+  
+  
+  speciesA <- specieslist_english[which(specieslist == speciesA_for_activity)]
+  speciesB <- specieslist_english[which(specieslist == speciesB_for_activity)]
+  speciesC <- specieslist_english[which(specieslist == speciesC_for_activity)]
+  speciesD <- specieslist_english[which(specieslist == speciesD_for_activity)]
+
+dataf <- d1_NoCovid
+
+d_overlap_ABNoCovid <- activityOverlap(recordTable = d1_NoCovid,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+  
+d_overlap_CDNoCovid <- activityOverlap(recordTable = d1_NoCovid,
+                     speciesA    = speciesC_for_activity,
+                     speciesB    = speciesD_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+   
+  #
+  A <- cbind(d_overlap_ABNoCovid[,c(1:2)], species = speciesA)
+  B <- cbind (d_overlap_ABNoCovid[,c(1,3)], species = speciesB)
+  C <- cbind (d_overlap_CDNoCovid[,c(1,2)], species = speciesC)
+  D <- cbind (d_overlap_CDNoCovid[,c(1,3)], species = speciesD)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+  colnames(C)[2] <- "value"
+  colnames(D)[2] <- "value"
+  
+  ABCD <- rbind(A,B,C,D)
+     
+   plotNoCovid <-  ggplot(data = ABCD, aes(x = x, y = value, colour = species)) +
+            geom_line() +
+            geom_area(aes(fill = species, group = species),
+                      alpha = 0.4, position = 'identity', outline.type = "full") +
+     
+     scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, by = 2)) +
+     geom_vline(xintercept = 6, linetype="dashed", color = "grey") +
+     geom_vline(xintercept = 18, linetype="dashed", color = "grey") +
+     #scale_color_viridis_d() +
+     coord_polar() +
+     scale_color_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+     scale_fill_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+
+    theme_minimal() +
+    xlab("Time (hours)") +
+    ylab("Activity") +
+    labs(title="No Covid") +
+    theme(legend.position = "bottom")
+
+
+```
+
+#during covid
+```{r}
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+speciesC_for_activity <- "Waschbär"    # 
+speciesD_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+  
+  
+  speciesA <- specieslist_english[which(specieslist == speciesA_for_activity)]
+  speciesB <- specieslist_english[which(specieslist == speciesB_for_activity)]
+  speciesC <- specieslist_english[which(specieslist == speciesC_for_activity)]
+  speciesD <- specieslist_english[which(specieslist == speciesD_for_activity)]
+
+dataf1 <- d1_Covid
+
+d_overlap_ABCovid <- activityOverlap(recordTable = d1_Covid,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+  
+d_overlap_CDCovid <- activityOverlap(recordTable = d1_Covid,
+                     speciesA    = speciesC_for_activity,
+                     speciesB    = speciesD_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+   
+  #cat and cat Dhat1 = 0.89
+  A <- cbind(d_overlap_ABCovid[,c(1:2)], species = speciesA)
+  B <- cbind (d_overlap_ABCovid[,c(1,3)], species = speciesB)
+  C <- cbind (d_overlap_CDCovid[,c(1,2)], species = speciesC)
+  D <- cbind (d_overlap_CDCovid[,c(1,3)], species = speciesD)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+  colnames(C)[2] <- "value"
+  colnames(D)[2] <- "value"
+  
+  ABCD <- rbind(A,B,C,D)
+     
+   plotCovid <-  ggplot(data = ABCD, aes(x = x, y = value, colour = species)) +
+            geom_line() +
+            geom_area(aes(fill = species, group = species),
+                      alpha = 0.4, position = 'identity', outline.type = "full") +
+     
+     scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, by = 2)) +
+     geom_vline(xintercept = 6, linetype="dashed", color = "grey") +
+     geom_vline(xintercept = 18, linetype="dashed", color = "grey") +
+     #scale_color_viridis_d() +
+     coord_polar() +
+     scale_color_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+     scale_fill_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+
+    theme_minimal() +
+    xlab("Time (hours)") +
+    ylab("Activity") +
+    labs(title="Covid") +
+    theme(legend.position = "none") 
+
+
+```
+
+# during spring 
+```{r}
+
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+speciesC_for_activity <- "Waschbär"    # 
+speciesD_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+  
+  
+  speciesA <- specieslist_english[which(specieslist == speciesA_for_activity)]
+  speciesB <- specieslist_english[which(specieslist == speciesB_for_activity)]
+  speciesC <- specieslist_english[which(specieslist == speciesC_for_activity)]
+  speciesD <- specieslist_english[which(specieslist == speciesD_for_activity)]
+
+dataf2 <- d1_Spring
+
+d_overlap_ABSpring <- activityOverlap(recordTable = d1_Spring,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+  
+d_overlap_CDSpring <- activityOverlap(recordTable = d1_Spring,
+                     speciesA    = speciesC_for_activity,
+                     speciesB    = speciesD_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+   
+  #cat and cat Dhat1 = 0.89
+  A <- cbind(d_overlap_ABSpring[,c(1:2)], species = speciesA)
+  B <- cbind (d_overlap_ABSpring[,c(1,3)], species = speciesB)
+  C <- cbind (d_overlap_CDSpring[,c(1,2)], species = speciesC)
+  D <- cbind (d_overlap_CDSpring[,c(1,3)], species = speciesD)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+  colnames(C)[2] <- "value"
+  colnames(D)[2] <- "value"
+  
+  ABCD <- rbind(A,B,C,D)
+     
+   plotSpring <-  ggplot(data = ABCD, aes(x = x, y = value, colour = species)) +
+            geom_line() +
+            geom_area(aes(fill = species, group = species),
+                      alpha = 0.4, position = 'identity', outline.type = "full") +
+     
+     scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, by = 2)) +
+     geom_vline(xintercept = 6, linetype="dashed", color = "grey") +
+     geom_vline(xintercept = 18, linetype="dashed", color = "grey") +
+     #scale_color_viridis_d() +
+     coord_polar() +
+     scale_color_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+     scale_fill_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+
+    theme_minimal() +
+    xlab("Time (hours)") +
+    ylab("Activity") +
+    labs(title="Spring") +
+    theme(legend.position = "none")
+   
+```
+
+
+# during fall
+```{r}
+
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+speciesC_for_activity <- "Waschbär"    # 
+speciesD_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+  
+  
+  speciesA <- specieslist_english[which(specieslist == speciesA_for_activity)]
+  speciesB <- specieslist_english[which(specieslist == speciesB_for_activity)]
+  speciesC <- specieslist_english[which(specieslist == speciesC_for_activity)]
+  speciesD <- specieslist_english[which(specieslist == speciesD_for_activity)]
+
+dataf3 <- d1_Fall
+
+d_overlap_ABFall <- activityOverlap(recordTable = d1_Fall,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+  
+d_overlap_CDFall <- activityOverlap(recordTable = d1_Fall,
+                     speciesA    = speciesC_for_activity,
+                     speciesB    = speciesD_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+   
+  #cat and cat Dhat1 = 0.89
+  A <- cbind(d_overlap_ABFall[,c(1:2)], species = speciesA)
+  B <- cbind (d_overlap_ABFall[,c(1,3)], species = speciesB)
+  C <- cbind (d_overlap_CDFall[,c(1,2)], species = speciesC)
+  D <- cbind (d_overlap_CDFall[,c(1,3)], species = speciesD)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+  colnames(C)[2] <- "value"
+  colnames(D)[2] <- "value"
+  
+  ABCD <- rbind(A,B,C,D)
+     
+   plotFall <-  ggplot(data = ABCD, aes(x = x, y = value, colour = species)) +
+            geom_line() +
+            geom_area(aes(fill = species, group = species),
+                      alpha = 0.4, position = 'identity', outline.type = "full") +
+     
+     scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, by = 2)) +
+     geom_vline(xintercept = 6, linetype="dashed", color = "grey") +
+     geom_vline(xintercept = 18, linetype="dashed", color = "grey") +
+     #scale_color_viridis_d() +
+     coord_polar() +
+     scale_color_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+     scale_fill_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+
+    theme_minimal() +
+    xlab("Time (hours)") +
+    ylab("Activity") +
+    labs(title="Fall") +
+    theme(legend.position = "bottom") 
+   
+```
+# saving all the circular plots
+
+```{r}
+
+#putting covid and nocovid together 
+
+cov <- ggarrange(plotCovid, plotNoCovid, common.legend = TRUE, legend = "right")
+
+#putting spring and fall together 
+
+season <- ggarrange(plotSpring, plotFall, common.legend = TRUE, legend = "right")
+
+
+# save
+ggsave(plot = cov, paste0(plots_wd, "/Circularplot_allSpecies_CovidNocovid", gsub("-", "_", Sys.Date()),".png"), height=8, width=9, units='in', dpi=600)
+
+# save
+ggsave(plot = season, paste0(plots_wd, "/Circularplot_allSpecies_SpringFall", gsub("-", "_", Sys.Date()),".png"), height=8, width=9, units='in', dpi=600)
+
+```
+## All separated seasons 
+```{r}
+####we will start with the simpliest : activity patterns 
+###activity pattern analyses ####
+#prep data
+CT_1 <- CT_act_date_formated %>% filter(Season == 1 )
+CT_2 <- CT_act_date_formated %>% filter(Season == 2 )
+CT_3 <- CT_act_date_formated %>% filter(Season == 3 )
+CT_4 <- CT_act_date_formated %>% filter(Season == 4 )
+CT_5 <- CT_act_date_formated %>% filter(Season == 5 )
+
+
+#selecting the mesocarnivores
+mesocarn_1 <- CT_1 %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+mesocarn_2 <- CT_2 %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+mesocarn_3 <- CT_3 %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+mesocarn_4 <- CT_4 %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+mesocarn_5 <- CT_5 %>% filter(Species == "cat" | Species == "Marder_(Baum-und_Steinmarder)" | Species =="Rotfuchs" | Species == "Waschbär")
+
+``` 
+
+##Activity overlapses
+```{r}
+####   activity overlapses   ####
+mesocarn_1$Station <- as.character(mesocarn_1$Station)
+mesocarn_2$Station <- as.character(mesocarn_2$Station)
+mesocarn_3$Station <- as.character(mesocarn_3$Station)
+mesocarn_4$Station <- as.character(mesocarn_4$Station)
+mesocarn_5$Station <- as.character(mesocarn_5$Station)
+
+#now we take the columns of interest
+d1_1 <- mesocarn_1 %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+d1_2 <- mesocarn_2 %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+d1_3 <- mesocarn_3 %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+d1_4 <- mesocarn_4 %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+d1_5 <- mesocarn_5 %>% dplyr::select(Species, Station, DateTimeOriginal, Date, Time)
+
+# create activity overlap plot
+# define species of interest
+specieslist <- c("cat", "Rotfuchs", "Waschbär", "Marder_(Baum-und_Steinmarder)")
+specieslist_english <- c("Cat", "Red fox", "Raccoon", "Marten")
+
+speciesA_for_activity <- "cat"    # 
+speciesB_for_activity <- "Rotfuchs"    # 
+speciesC_for_activity <- "Waschbär"    # 
+speciesD_for_activity <- "Marder_(Baum-und_Steinmarder)"    # 
+  
+  
+  speciesA <- specieslist_english[which(specieslist == speciesA_for_activity)]
+  speciesB <- specieslist_english[which(specieslist == speciesB_for_activity)]
+  speciesC <- specieslist_english[which(specieslist == speciesC_for_activity)]
+  speciesD <- specieslist_english[which(specieslist == speciesD_for_activity)]
+
+  
+### 1st season 
+dataf_d1 <- d1_1
+
+d_overlap_AB_1 <- activityOverlap(recordTable = d1_1,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+  
+d_overlap_CD_1 <- activityOverlap(recordTable = d1_1,
+                     speciesA    = speciesC_for_activity,
+                     speciesB    = speciesD_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+   
+  #cat and cat Dhat1 = 0.89
+  A <- cbind(d_overlap_AB_1[,c(1:2)], species = speciesA)
+  B <- cbind (d_overlap_AB_1[,c(1,3)], species = speciesB)
+  C <- cbind (d_overlap_CD_1[,c(1,2)], species = speciesC)
+  D <- cbind (d_overlap_CD_1[,c(1,3)], species = speciesD)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+  colnames(C)[2] <- "value"
+  colnames(D)[2] <- "value"
+  
+  ABCD <- rbind(A,B,C,D)
+     
+   plot_1 <-  ggplot(data = ABCD, aes(x = x, y = value, colour = species)) +
+            geom_line() +
+            geom_area(aes(fill = species, group = species),
+                      alpha = 0.4, position = 'identity', outline.type = "full") +
+     
+     scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, by = 2)) +
+     geom_vline(xintercept = 6, linetype="dashed", color = "grey") +
+     geom_vline(xintercept = 18, linetype="dashed", color = "grey") +
+     #scale_color_viridis_d() +
+     coord_polar() +
+     scale_color_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+     scale_fill_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+
+    theme_minimal() +
+    xlab("Time (hours)") +
+    ylab("Activity") +
+    labs(title="Fall_2018") +
+    theme(legend.position = "bottom") 
+   
+### 2nd season 
+dataf_d2 <- d1_2
+
+d_overlap_AB_2 <- activityOverlap(recordTable = d1_2,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+  
+d_overlap_CD_2 <- activityOverlap(recordTable = d1_2,
+                     speciesA    = speciesC_for_activity,
+                     speciesB    = speciesD_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+   
+  #cat and cat Dhat1 = 0.89
+  A <- cbind(d_overlap_AB_2[,c(1:2)], species = speciesA)
+  B <- cbind (d_overlap_AB_2[,c(1,3)], species = speciesB)
+  C <- cbind (d_overlap_CD_2[,c(1,2)], species = speciesC)
+  D <- cbind (d_overlap_CD_2[,c(1,3)], species = speciesD)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+  colnames(C)[2] <- "value"
+  colnames(D)[2] <- "value"
+  
+  ABCD <- rbind(A,B,C,D)
+     
+   plot_2 <-  ggplot(data = ABCD, aes(x = x, y = value, colour = species)) +
+            geom_line() +
+            geom_area(aes(fill = species, group = species),
+                      alpha = 0.4, position = 'identity', outline.type = "full") +
+     
+     scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, by = 2)) +
+     geom_vline(xintercept = 6, linetype="dashed", color = "grey") +
+     geom_vline(xintercept = 18, linetype="dashed", color = "grey") +
+     #scale_color_viridis_d() +
+     coord_polar() +
+     scale_color_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+     scale_fill_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+
+    theme_minimal() +
+    xlab("Time (hours)") +
+    ylab("Activity") +
+    labs(title="spring_2019") +
+    theme(legend.position = "bottom") 
+   
+### 3rd season 
+dataf_d3 <- d1_3
+
+d_overlap_AB_3 <- activityOverlap(recordTable = d1_3,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+  
+d_overlap_CD_3 <- activityOverlap(recordTable = d1_3,
+                     speciesA    = speciesC_for_activity,
+                     speciesB    = speciesD_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+   
+  #cat and cat Dhat1 = 0.89
+  A <- cbind(d_overlap_AB_3[,c(1:2)], species = speciesA)
+  B <- cbind (d_overlap_AB_3[,c(1,3)], species = speciesB)
+  C <- cbind (d_overlap_CD_3[,c(1,2)], species = speciesC)
+  D <- cbind (d_overlap_CD_3[,c(1,3)], species = speciesD)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+  colnames(C)[2] <- "value"
+  colnames(D)[2] <- "value"
+  
+  ABCD <- rbind(A,B,C,D)
+     
+   plot_3 <-  ggplot(data = ABCD, aes(x = x, y = value, colour = species)) +
+            geom_line() +
+            geom_area(aes(fill = species, group = species),
+                      alpha = 0.4, position = 'identity', outline.type = "full") +
+     
+     scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, by = 2)) +
+     geom_vline(xintercept = 6, linetype="dashed", color = "grey") +
+     geom_vline(xintercept = 18, linetype="dashed", color = "grey") +
+     #scale_color_viridis_d() +
+     coord_polar() +
+     scale_color_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+     scale_fill_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+
+    theme_minimal() +
+    xlab("Time (hours)") +
+    ylab("Activity") +
+    labs(title="Fall_2019") +
+    theme(legend.position = "bottom") 
+   
+### 4th season 
+dataf_d4 <- d1_4
+
+d_overlap_AB_4 <- activityOverlap(recordTable = d1_4,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+  
+d_overlap_CD_4 <- activityOverlap(recordTable = d1_4,
+                     speciesA    = speciesC_for_activity,
+                     speciesB    = speciesD_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+   
+  #cat and cat Dhat1 = 0.89
+  A <- cbind(d_overlap_AB_4[,c(1:2)], species = speciesA)
+  B <- cbind (d_overlap_AB_4[,c(1,3)], species = speciesB)
+  C <- cbind (d_overlap_CD_4[,c(1,2)], species = speciesC)
+  D <- cbind (d_overlap_CD_4[,c(1,3)], species = speciesD)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+  colnames(C)[2] <- "value"
+  colnames(D)[2] <- "value"
+  
+  ABCD <- rbind(A,B,C,D)
+     
+   plot_4 <-  ggplot(data = ABCD, aes(x = x, y = value, colour = species)) +
+            geom_line() +
+            geom_area(aes(fill = species, group = species),
+                      alpha = 0.4, position = 'identity', outline.type = "full") +
+     
+     scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, by = 2)) +
+     geom_vline(xintercept = 6, linetype="dashed", color = "grey") +
+     geom_vline(xintercept = 18, linetype="dashed", color = "grey") +
+     #scale_color_viridis_d() +
+     coord_polar() +
+     scale_color_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+     scale_fill_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+
+    theme_minimal() +
+    xlab("Time (hours)") +
+    ylab("Activity") +
+    labs(title="Spring_2020") +
+    theme(legend.position = "bottom") 
+   
+### 5th season 
+dataf_d5 <- d1_5
+
+d_overlap_AB_5 <- activityOverlap(recordTable = d1_5,
+                     speciesA    = speciesA_for_activity,
+                     speciesB    = speciesB_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+  
+d_overlap_CD_5 <- activityOverlap(recordTable = d1_5,
+                     speciesA    = speciesC_for_activity,
+                     speciesB    = speciesD_for_activity,
+                     speciesCol = "Species",
+                     recordDateTimeCol = "DateTimeOriginal",
+                     plotR       = TRUE,
+                     add.rug     = FALSE
+                     #writePNG    = TRUE,
+                     #addLegend   = TRUE,
+                     #plotDirectory = getwd()
+)
+   
+  #cat and cat Dhat1 = 0.89
+  A <- cbind(d_overlap_AB_5[,c(1:2)], species = speciesA)
+  B <- cbind (d_overlap_AB_5[,c(1,3)], species = speciesB)
+  C <- cbind (d_overlap_CD_5[,c(1,2)], species = speciesC)
+  D <- cbind (d_overlap_CD_5[,c(1,3)], species = speciesD)
+
+  colnames(A)[2] <- "value"
+  colnames(B)[2] <- "value"
+  colnames(C)[2] <- "value"
+  colnames(D)[2] <- "value"
+  
+  ABCD <- rbind(A,B,C,D)
+     
+   plot_5 <-  ggplot(data = ABCD, aes(x = x, y = value, colour = species)) +
+            geom_line() +
+            geom_area(aes(fill = species, group = species),
+                      alpha = 0.4, position = 'identity', outline.type = "full") +
+     
+     scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, by = 2)) +
+     geom_vline(xintercept = 6, linetype="dashed", color = "grey") +
+     geom_vline(xintercept = 18, linetype="dashed", color = "grey") +
+     #scale_color_viridis_d() +
+     coord_polar() +
+     scale_color_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+     scale_fill_manual(values = c("#29AF7FFF","#BBDF27FF" , "#2D718EFF", "#482576FF")) +
+
+    theme_minimal() +
+    xlab("Time (hours)") +
+    ylab("Activity") +
+    labs(title="Fall_2020") +
+    theme(legend.position = "bottom")  
+
+sep_seasons <- ggarrange(plot_1, plot_2, plot_3, plot_4, plot_5, common.legend = TRUE, legend = "right")
+
+ggsave(plot = sep_seasons, paste0(plots_wd, "/Circularplot_allSpecies_AllSeasons", gsub("-", "_", Sys.Date()),".png"), height=8, width=9, units='in', dpi=600)
+
+```

@@ -1,0 +1,1316 @@
+---
+title: "Mesocarnivore community temporal analyses: Data into detection histories all_seasons" ## name of your project
+author: "Julie Louvrier, Aimara Planillo, Stephanie Kramer-Schadt"                     ## your name(s)
+date: "`r Sys.Date()`"                  ## current date
+output:
+  rmdformats::readthedown:
+    code_folding: hide                  ## hide or show code by default?
+    toc_depth: 3                        ## 3-level TOC
+---
+
+```{r setup, include=FALSE}
+## You can ignore this chunk in most cases
+## If you want to modify chunk options, you can do it here for all chunks or
+## add the options in the repsective chunk header, e.g. `{r, message = FALSE}`
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE,
+                      fig.width = 9, fig.height = 6, dpi = 500, 
+                      retina = 1, fig.showtext = TRUE)
+```
+
+* **Research question:do urban mesocarnivores experience temporal partitioning in gardens? **
+* **Study area: Berlin fall 2018, spring 2019, fall 2019, spring 2020, fall 2020**
+* **Data: all seasons ** 
+
+
+# Setup
+### Packages
+
+```{r packages}
+## for non-CRAN packages please keep install instruction
+## but commented so it is not run each time, e.g.
+# devtools::install_github("EcoDynIZW/template")
+rm(list=ls())
+## libraries used in this script
+## please add ALL LIBRARIES NEEDED HERE
+## please remove libraries from the list that are not needed anymore 
+## at a later stage
+#### load required libraries ####
+package.list=c("camtrapR",
+               "dplyr",
+               "evaluate",
+               "gdata",
+               "here",
+               "janitor",
+               "lubridate",
+               "maptools",
+               "optimbase",
+               "plyr",
+               "raster",
+               "readxl",
+               #"rgdal",
+               #"rgeos",
+               #"rjags",
+               "rlecuyer",
+               #"sf",
+               "showtext",
+               "snowfall",
+               #"sp",
+               "stringr",
+               "tidyverse"
+               )
+
+for (package in package.list) {
+  if (!require(package, character.only=T, quietly=T)) {
+    install.packages(package)
+    library(package, character.only=T)
+  }
+}
+
+```
+
+### Workspace
+```{r}
+WorkDir <- here::here()
+
+
+procdata_wd <- file.path(WorkDir, "output/data-proc/temporal_processed_data")
+plots_wd <- file.path(WorkDir, "plots/temp")
+```
+
+### Loading data
+
+```{r data}
+##Camera Traps detection histories
+#loading the environmental variables and using only the user IDs that are within the cov table
+stacked_raster_values_and_garden_CT_all_seasons_no_nas <- readRDS( here::here("output", "data-proc", "dryad", paste0("Louvrier_2021_JAE_UrbanMesocarnivores_Covariates_cameras_Dryad2021_10_29.RDS")))
+
+#already formated and filtered data with a delta of 30 mins
+CT_act_date_formated <- readRDS(here::here("output", "data-proc", "dryad","Louvrier_2021_JAE_UrbanMesocarnivores_Camera_detections_Dryad2021_11_05.RDS"))
+
+
+```   
+
+#Number of all pictures jSDM
+##Whole month with weekdays and weekends
+```{r}
+#code for separating weekdays and weekends
+# transform date variables to correct formats
+activity_data <- CT_act_date_formated %>% 
+mutate(date_wday = lubridate::wday(CT_act_date_formated$Date, label = TRUE))%>% 
+#binary variable for weekdays or weekends
+ dplyr::mutate(weekdays_binary = factor(ifelse(date_wday == "Sa"| date_wday == "So", "0", "1")))
+##careful ere the name of days depend on the language settings of the computer
+
+
+#let's create a list that would contain the dates of beginning and end for each season
+list_date_monthly <- list()
+list_date_monthly[[1]] <- c(as.Date("2018-10-07"),
+                           as.Date("2018-11-04")) #P1
+list_date_monthly[[2]] <- c(as.Date("2019-04-01"),
+                           as.Date("2019-04-28")) #P2
+list_date_monthly[[3]] <- c(as.Date("2019-09-30"), 
+                           as.Date("2019-10-27")) #P3
+list_date_monthly[[4]] <- c(as.Date("2020-03-30"),
+                           as.Date("2020-04-26")) #P4
+list_date_monthly[[5]] <- c(as.Date("2020-09-28"), 
+                           as.Date("2020-10-26")) #P5
+#filter by date
+P1 <- activity_data %>% filter(Date >= list_date_monthly[[1]][1] & Date <= list_date_monthly[[1]][2])
+P2 <- activity_data %>% filter(Date >= list_date_monthly[[2]][1] & Date <= list_date_monthly[[2]][2])
+P3 <- activity_data %>% filter(Date >= list_date_monthly[[3]][1] & Date <= list_date_monthly[[3]][2])
+P4 <- activity_data %>% filter(Date >= list_date_monthly[[4]][1] & Date <= list_date_monthly[[4]][2])
+P5 <- activity_data %>% filter(Date >= list_date_monthly[[5]][1] & Date <= list_date_monthly[[5]][2])
+
+#separating for weekends and weekdays
+P1_weekdays <- P1 %>% dplyr::filter(weekdays_binary == 1)
+P1_weekends <- P1 %>% dplyr::filter(weekdays_binary == 0)
+
+P2_weekdays <- P2 %>% dplyr::filter(weekdays_binary == 1)
+P2_weekends <- P2 %>% dplyr::filter(weekdays_binary == 0)
+
+P3_weekdays <- P3 %>% dplyr::filter(weekdays_binary == 1)
+P3_weekends <- P3 %>% dplyr::filter(weekdays_binary == 0)
+
+P4_weekdays <- P4 %>% dplyr::filter(weekdays_binary == 1)
+P4_weekends <- P4 %>% dplyr::filter(weekdays_binary == 0)
+
+P5_weekdays <- P5 %>% dplyr::filter(weekdays_binary == 1)
+P5_weekends <- P5 %>% dplyr::filter(weekdays_binary == 0)
+
+#function for counting the number of pictures for each species
+activity <- function(species, CT)
+{
+  CT_species <- CT %>% filter(Species == species)
+
+  Unique_CT <- unique(CT_species$Station)
+  l <- list(0)
+
+  for(i in Unique_CT)
+    {
+      l[[which(Unique_CT == i)]] <- 
+      nrow(CT_species %>% filter(Station == i)) 
+     #% of pictures taken during the night
+      names(l)[which(Unique_CT == i)] <- as.character(i)
+       }
+   x <- data.frame(unlist(l))
+   x <- x %>% mutate(User_uid = as.numeric(rownames(x)))
+   x_covenv <- dplyr::inner_join(x,stacked_raster_values_and_garden_CT_all_seasons_no_nas) #merging with the covenv
+   return(x_covenv)
+
+}
+
+#P1
+cat_P1_activity_weekdays <- activity("cat", P1_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P1_activity_weekends <- activity("cat", P1_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P1_activity_weekdays <- activity("Rotfuchs", P1_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P1_activity_weekends <- activity("Rotfuchs", P1_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P1_activity_weekdays <- activity("Waschbär", P1_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P1_activity_weekends <- activity("Waschbär", P1_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P1_activity_weekdays <- activity("Marder_(Baum-und_Steinmarder)", P1_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P1_activity_weekends <- activity("Marder_(Baum-und_Steinmarder)", P1_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P1_activity_weekdays)[1] <- "activity"
+colnames(cat_P1_activity_weekends)[1] <- "activity"
+colnames(fox_P1_activity_weekdays)[1] <- "activity"
+colnames(fox_P1_activity_weekends)[1] <- "activity"
+colnames(raccoon_P1_activity_weekdays)[1] <- "activity"
+colnames(raccoon_P1_activity_weekends)[1] <- "activity"
+colnames(marten_P1_activity_weekdays)[1] <- "activity"
+colnames(marten_P1_activity_weekends)[1] <- "activity"
+
+#P2
+cat_P2_activity_weekdays <- activity("cat", P2_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P2_activity_weekends <- activity("cat", P2_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P2_activity_weekdays <- activity("Rotfuchs", P2_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P2_activity_weekends <- activity("Rotfuchs", P2_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P2_activity_weekdays <- activity("Waschbär", P2_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P2_activity_weekends <- activity("Waschbär", P2_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P2_activity_weekdays <- activity("Marder_(Baum-und_Steinmarder)", P2_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P2_activity_weekends <- activity("Marder_(Baum-und_Steinmarder)", P2_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P2_activity_weekdays)[1] <- "activity"
+colnames(cat_P2_activity_weekends)[1] <- "activity"
+colnames(fox_P2_activity_weekdays)[1] <- "activity"
+colnames(fox_P2_activity_weekends)[1] <- "activity"
+colnames(raccoon_P2_activity_weekdays)[1] <- "activity"
+colnames(raccoon_P2_activity_weekends)[1] <- "activity"
+colnames(marten_P2_activity_weekdays)[1] <- "activity"
+colnames(marten_P2_activity_weekends)[1] <- "activity"
+
+#P3
+cat_P3_activity_weekdays <- activity("cat", P3_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P3_activity_weekends <- activity("cat", P3_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P3_activity_weekdays <- activity("Rotfuchs", P3_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P3_activity_weekends <- activity("Rotfuchs", P3_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P3_activity_weekdays <- activity("Waschbär", P3_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P3_activity_weekends <- activity("Waschbär", P3_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P3_activity_weekdays <- activity("Marder_(Baum-und_Steinmarder)", P3_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P3_activity_weekends <- activity("Marder_(Baum-und_Steinmarder)", P3_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P3_activity_weekdays)[1] <- "activity"
+colnames(cat_P3_activity_weekends)[1] <- "activity"
+colnames(fox_P3_activity_weekdays)[1] <- "activity"
+colnames(fox_P3_activity_weekends)[1] <- "activity"
+colnames(raccoon_P3_activity_weekdays)[1] <- "activity"
+colnames(raccoon_P3_activity_weekends)[1] <- "activity"
+colnames(marten_P3_activity_weekdays)[1] <- "activity"
+colnames(marten_P3_activity_weekends)[1] <- "activity"
+
+#P4
+cat_P4_activity_weekdays <- activity("cat", P4_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P4_activity_weekends <- activity("cat", P4_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P4_activity_weekdays <- activity("Rotfuchs", P4_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P4_activity_weekends <- activity("Rotfuchs", P4_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P4_activity_weekdays <- activity("Waschbär", P4_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P4_activity_weekends <- activity("Waschbär", P4_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P4_activity_weekdays <- activity("Marder_(Baum-und_Steinmarder)", P4_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P4_activity_weekends <- activity("Marder_(Baum-und_Steinmarder)", P4_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P4_activity_weekdays)[1] <- "activity"
+colnames(cat_P4_activity_weekends)[1] <- "activity"
+colnames(fox_P4_activity_weekdays)[1] <- "activity"
+colnames(fox_P4_activity_weekends)[1] <- "activity"
+colnames(raccoon_P4_activity_weekdays)[1] <- "activity"
+colnames(raccoon_P4_activity_weekends)[1] <- "activity"
+colnames(marten_P4_activity_weekdays)[1] <- "activity"
+colnames(marten_P4_activity_weekends)[1] <- "activity"
+
+#P5
+cat_P5_activity_weekdays <- activity("cat", P5_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P5_activity_weekends <- activity("cat", P5_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P5_activity_weekdays <- activity("Rotfuchs", P5_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P5_activity_weekends <- activity("Rotfuchs", P5_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P5_activity_weekdays <- activity("Waschbär", P5_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P5_activity_weekends <- activity("Waschbär", P5_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P5_activity_weekdays <- activity("Marder_(Baum-und_Steinmarder)", P5_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P5_activity_weekends <- activity("Marder_(Baum-und_Steinmarder)", P5_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P5_activity_weekdays)[1] <- "activity"
+colnames(cat_P5_activity_weekends)[1] <- "activity"
+colnames(fox_P5_activity_weekdays)[1] <- "activity"
+colnames(fox_P5_activity_weekends)[1] <- "activity"
+colnames(raccoon_P5_activity_weekdays)[1] <- "activity"
+colnames(raccoon_P5_activity_weekends)[1] <- "activity"
+colnames(marten_P5_activity_weekdays)[1] <- "activity"
+colnames(marten_P5_activity_weekends)[1] <- "activity"
+
+Activity_mesocarnivores_Berlin_all_seasons <- rbind(cat_P1_activity_weekdays, cat_P1_activity_weekends,
+                                                    fox_P1_activity_weekdays, fox_P1_activity_weekends, 
+                                                    raccoon_P1_activity_weekdays, raccoon_P1_activity_weekends,
+                                                    marten_P1_activity_weekdays, marten_P1_activity_weekends, 
+                                                    cat_P2_activity_weekdays, cat_P2_activity_weekends,
+                                                    fox_P2_activity_weekdays, fox_P2_activity_weekends, 
+                                                    raccoon_P2_activity_weekdays, raccoon_P2_activity_weekends,
+                                                    marten_P2_activity_weekdays, marten_P2_activity_weekends, 
+                                                    cat_P3_activity_weekdays, cat_P3_activity_weekends,
+                                                    fox_P3_activity_weekdays, fox_P3_activity_weekends, 
+                                                    raccoon_P3_activity_weekdays, raccoon_P3_activity_weekends,
+                                                    marten_P3_activity_weekdays, marten_P3_activity_weekends, 
+                                                    cat_P4_activity_weekdays, cat_P4_activity_weekends,
+                                                    fox_P4_activity_weekdays, fox_P4_activity_weekends, 
+                                                    raccoon_P4_activity_weekdays, raccoon_P4_activity_weekends,
+                                                    marten_P4_activity_weekdays, marten_P4_activity_weekends, 
+                                                    cat_P5_activity_weekdays, cat_P5_activity_weekends,
+                                                    fox_P5_activity_weekdays, fox_P5_activity_weekends, 
+                                                    raccoon_P5_activity_weekdays, raccoon_P5_activity_weekends,
+                                                    marten_P5_activity_weekdays, marten_P5_activity_weekends)
+
+length(unique(Activity_mesocarnivores_Berlin_all_seasons$User_uid))
+
+saveRDS(Activity_mesocarnivores_Berlin_all_seasons, file = here::here("output", "data-proc", "all_seasons", paste0("Activity_mesocarnivores_Berlin_all_seasons",gsub("-", "_", Sys.Date()),".RDS")))
+
+
+```
+
+#Nocturnality
+## whole month with weekdays and weekends
+```{r}
+
+#function for counting the number of pictures for each species
+nocturnality <- function(species, CT)
+{
+  CT_species <- CT %>% filter(Species == species)
+
+  Unique_CT <- unique(CT_species$Station)
+  l <- list(0)
+  k <- list(0)
+
+  for(i in Unique_CT)
+    {
+      l[[which(Unique_CT == i)]] <- 
+      (nrow(CT_species %>% filter(Station == i) %>% dplyr::filter(Time >= hms("21:00:00") 
+                                & Time <= hms("24:00:00"))) 
+      + 
+      nrow(CT_species %>% filter(Station == i) %>% dplyr::filter(Time >= hms("00:00:00")
+                                & Time <= hms("06:00:00"))))/nrow(CT_species %>% filter(Station == i)) #% of pictures taken during the night
+      names(l)[which(Unique_CT == i)] <- as.character(i)
+      
+      k[[which(Unique_CT == i)]] <- 
+      (nrow(CT_species %>% filter(Station == i) %>% dplyr::filter(Time >= hms("21:00:00") 
+                                & Time <= hms("24:00:00"))) 
+      + 
+      nrow(CT_species %>% filter(Station == i) %>% dplyr::filter(Time >= hms("00:00:00")
+                                & Time <= hms("06:00:00")))) #number of pictures taken during the night
+      names(k)[which(Unique_CT == i)] <- as.character(i)
+
+       }
+   x <- data.frame(unlist(l))
+   x <- x %>% mutate(User_uid = as.numeric(rownames(x)))
+   x_covenv <- dplyr::inner_join(x,stacked_raster_values_and_garden_CT_all_seasons_no_nas) #merging with the covenv
+
+   y <- data.frame(unlist(k))
+   y <- y %>% mutate(User_uid = as.numeric(rownames(y)))
+   y_covenv <- dplyr::inner_join(y,x_covenv) #merging with the covenv
+   return(y_covenv)
+   
+}
+
+#P1
+cat_P1_nocturnality_weekdays <- nocturnality("cat", P1_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P1_nocturnality_weekends <- nocturnality("cat", P1_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P1_nocturnality_weekdays <- nocturnality("Rotfuchs", P1_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P1_nocturnality_weekends <- nocturnality("Rotfuchs", P1_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P1_nocturnality_weekdays <- nocturnality("Waschbär", P1_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P1_nocturnality_weekends <- nocturnality("Waschbär", P1_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P1_nocturnality_weekdays <- nocturnality("Marder_(Baum-und_Steinmarder)", P1_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P1_nocturnality_weekends <- nocturnality("Marder_(Baum-und_Steinmarder)", P1_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P1_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(cat_P1_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P1_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P1_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P1_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P1_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P1_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P1_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+
+#P2
+cat_P2_nocturnality_weekdays <- nocturnality("cat", P2_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P2_nocturnality_weekends <- nocturnality("cat", P2_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P2_nocturnality_weekdays <- nocturnality("Rotfuchs", P2_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P2_nocturnality_weekends <- nocturnality("Rotfuchs", P2_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P2_nocturnality_weekdays <- nocturnality("Waschbär", P2_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P2_nocturnality_weekends <- nocturnality("Waschbär", P2_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P2_nocturnality_weekdays <- nocturnality("Marder_(Baum-und_Steinmarder)", P2_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P2_nocturnality_weekends <- nocturnality("Marder_(Baum-und_Steinmarder)", P2_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P2_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(cat_P2_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P2_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P2_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P2_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P2_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P2_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P2_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+
+#P3
+cat_P3_nocturnality_weekdays <- nocturnality("cat", P3_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P3_nocturnality_weekends <- nocturnality("cat", P3_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P3_nocturnality_weekdays <- nocturnality("Rotfuchs", P3_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P3_nocturnality_weekends <- nocturnality("Rotfuchs", P3_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P3_nocturnality_weekdays <- nocturnality("Waschbär", P3_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P3_nocturnality_weekends <- nocturnality("Waschbär", P3_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P3_nocturnality_weekdays <- nocturnality("Marder_(Baum-und_Steinmarder)", P3_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P3_nocturnality_weekends <- nocturnality("Marder_(Baum-und_Steinmarder)", P3_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P3_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(cat_P3_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P3_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P3_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P3_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P3_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P3_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P3_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+
+#P4
+cat_P4_nocturnality_weekdays <- nocturnality("cat", P4_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P4_nocturnality_weekends <- nocturnality("cat", P4_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P4_nocturnality_weekdays <- nocturnality("Rotfuchs", P4_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P4_nocturnality_weekends <- nocturnality("Rotfuchs", P4_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P4_nocturnality_weekdays <- nocturnality("Waschbär", P4_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P4_nocturnality_weekends <- nocturnality("Waschbär", P4_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P4_nocturnality_weekdays <- nocturnality("Marder_(Baum-und_Steinmarder)", P4_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P4_nocturnality_weekends <- nocturnality("Marder_(Baum-und_Steinmarder)", P4_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P4_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(cat_P4_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P4_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P4_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P4_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P4_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P4_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P4_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+
+#P5
+cat_P5_nocturnality_weekdays <- nocturnality("cat", P5_weekdays) %>%
+  mutate(species = "Cat", weekdays = 1)
+cat_P5_nocturnality_weekends <- nocturnality("cat", P5_weekends) %>%
+  mutate(species = "Cat", weekdays = 0)
+
+fox_P5_nocturnality_weekdays <- nocturnality("Rotfuchs", P5_weekdays) %>%
+  mutate(species = "Fox", weekdays = 1)
+fox_P5_nocturnality_weekends <- nocturnality("Rotfuchs", P5_weekends) %>%
+  mutate(species = "Fox", weekdays = 0)
+
+raccoon_P5_nocturnality_weekdays <- nocturnality("Waschbär", P5_weekdays) %>%
+  mutate(species = "Raccoon", weekdays = 1)
+raccoon_P5_nocturnality_weekends <- nocturnality("Waschbär", P5_weekends) %>%
+  mutate(species = "Raccoon", weekdays = 0)
+
+marten_P5_nocturnality_weekdays <- nocturnality("Marder_(Baum-und_Steinmarder)", P5_weekdays) %>%
+  mutate(species = "Marten", weekdays = 1)
+marten_P5_nocturnality_weekends <- nocturnality("Marder_(Baum-und_Steinmarder)", P5_weekends) %>%
+  mutate(species = "Marten", weekdays = 0)
+
+#renaming the column
+colnames(cat_P5_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(cat_P5_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P5_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(fox_P5_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P5_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(raccoon_P5_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P5_nocturnality_weekdays)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+colnames(marten_P5_nocturnality_weekends)[c(1,3)] <- c("nbr_pictures_night", "nocturnality")
+
+nocturnality_mesocarnivores_Berlin_all_seasons <- rbind(cat_P1_nocturnality_weekdays, cat_P1_nocturnality_weekends,
+                                                    fox_P1_nocturnality_weekdays, fox_P1_nocturnality_weekends, 
+                                                    raccoon_P1_nocturnality_weekdays, raccoon_P1_nocturnality_weekends,
+                                                    marten_P1_nocturnality_weekdays, marten_P1_nocturnality_weekends, 
+                                                    cat_P2_nocturnality_weekdays, cat_P2_nocturnality_weekends,
+                                                    fox_P2_nocturnality_weekdays, fox_P2_nocturnality_weekends, 
+                                                    raccoon_P2_nocturnality_weekdays, raccoon_P2_nocturnality_weekends,
+                                                    marten_P2_nocturnality_weekdays, marten_P2_nocturnality_weekends, 
+                                                    cat_P3_nocturnality_weekdays, cat_P3_nocturnality_weekends,
+                                                    fox_P3_nocturnality_weekdays, fox_P3_nocturnality_weekends, 
+                                                    raccoon_P3_nocturnality_weekdays, raccoon_P3_nocturnality_weekends,
+                                                    marten_P3_nocturnality_weekdays, marten_P3_nocturnality_weekends, 
+                                                    cat_P4_nocturnality_weekdays, cat_P4_nocturnality_weekends,
+                                                    fox_P4_nocturnality_weekdays, fox_P4_nocturnality_weekends, 
+                                                    raccoon_P4_nocturnality_weekdays, raccoon_P4_nocturnality_weekends,
+                                                    marten_P4_nocturnality_weekdays, marten_P4_nocturnality_weekends, 
+                                                    cat_P5_nocturnality_weekdays, cat_P5_nocturnality_weekends,
+                                                    fox_P5_nocturnality_weekdays, fox_P5_nocturnality_weekends, 
+                                                    raccoon_P5_nocturnality_weekdays, raccoon_P5_nocturnality_weekends,
+                                                    marten_P5_nocturnality_weekdays, marten_P5_nocturnality_weekends)
+
+length(unique(nocturnality_mesocarnivores_Berlin_all_seasons$User_uid))
+
+saveRDS(nocturnality_mesocarnivores_Berlin_all_seasons, file = here::here("output", "data-proc", "all_seasons", paste0("Nocturnality_mesocarnivores_Berlin_all_seasons",gsub("-", "_", Sys.Date()),".RDS")))
+
+
+```
+
+#Proxy of use jSDM
+## weekly 
+```{r}
+#let's create a list that would contain the dates of beginning and end for each season
+list_date_weekly <- list()
+list_date_weekly[[1]] <- c(as.Date("2018-10-07"),
+                           as.Date("2018-10-14"), #week 1
+                           as.Date("2018-10-21"), #week 2
+                           as.Date("2018-10-28"), #week 3
+                           as.Date("2018-11-04")) #week 4 of P1
+list_date_weekly[[2]] <- c(as.Date("2019-04-01"),
+                           as.Date("2019-04-08"),
+                           as.Date("2019-04-15"),
+                           as.Date("2019-04-22"),
+                           as.Date("2019-04-28")) #P2
+list_date_weekly[[3]] <- c(as.Date("2019-09-30"), 
+                           as.Date("2019-10-06"),
+                           as.Date("2019-10-13"),
+                           as.Date("2019-10-20"),
+                           as.Date("2019-10-27")) #P3
+list_date_weekly[[4]] <- c(as.Date("2020-03-30"), 
+                           as.Date("2020-04-05"),
+                           as.Date("2020-04-12"),
+                           as.Date("2020-04-19"),
+                           as.Date("2020-04-26")) #P4
+list_date_weekly[[5]] <- c(as.Date("2020-09-28"), 
+                           as.Date("2020-10-05"),
+                           as.Date("2020-10-12"),
+                           as.Date("2020-10-19"),
+                           as.Date("2020-10-26")) #P5
+
+
+
+# turning the dates into a date format
+CT_all_seasons_new$date <- as.Date(CT_all_seasons_new$date)
+
+#select the data entries between the date limits
+OCC1_P1 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[1]][1] & date <= list_date_weekly[[1]][2])
+OCC2_P1 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[1]][2] & date <= list_date_weekly[[1]][3])
+OCC3_P1 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[1]][3] & date <= list_date_weekly[[1]][4])
+OCC4_P1 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[1]][4] & date <= list_date_weekly[[1]][5])
+  
+OCC1_P2 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[2]][1] & date <= list_date_weekly[[2]][2])
+OCC2_P2 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[2]][2] & date <= list_date_weekly[[2]][3])
+OCC3_P2 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[2]][3] & date <= list_date_weekly[[2]][4])
+OCC4_P2 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[2]][4] & date <= list_date_weekly[[2]][5])
+
+OCC1_P3 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[3]][1] & date <= list_date_weekly[[3]][2])
+OCC2_P3 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[3]][2] & date <= list_date_weekly[[3]][3])
+OCC3_P3 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[3]][3] & date <= list_date_weekly[[3]][4])
+OCC4_P3 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[3]][4] & date <= list_date_weekly[[3]][5])
+
+OCC1_P4 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[4]][1] & date <= list_date_weekly[[4]][2])
+OCC2_P4 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[4]][2] & date <= list_date_weekly[[4]][3])
+OCC3_P4 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[4]][3] & date <= list_date_weekly[[4]][4])
+OCC4_P4 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[4]][4] & date <= list_date_weekly[[4]][5])
+
+OCC1_P5 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[5]][1] & date <= list_date_weekly[[5]][2])
+OCC2_P5 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[5]][2] & date <= list_date_weekly[[5]][3])
+OCC3_P5 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[5]][3] & date <= list_date_weekly[[5]][4])
+OCC4_P5 <- CT_all_seasons_new %>% filter(date > list_date_weekly[[5]][4] & date <= list_date_weekly[[5]][5])
+
+
+#create a function of use count
+use_count <- function(x) { #(x matrix of detections within a certain date limits)
+#get the unique dates 
+Date_CT_x <- unique(x$date)
+
+#create the matrix for the detection histories, 1 column for each species (11), 1 row for each ID (174 rows)
+Y <- matrix(ncol = length(unique(x$determination)), nrow = length(unique(x$User_uid)))
+
+#adding the column ID (User_uid)
+Y <- cbind("User_uid" = unique(x$User_uid), Y)
+
+#replacing this Marder name that is being annoying
+x_name_Marder <- recode(x$determination, "Marder_(Baum-und_Steinmarder)" = "Marder")
+
+#replacing the column determination with the new one
+x_name <- cbind(x_name_Marder, x[,-1])
+colnames(x_name)[1] = "determination"
+
+#selecting the species of interest : 
+species_interest <- c("Marder","Rotfuchs", "cat", "Waschbär")
+
+x_meso_carn <- x_name %>% filter(determination %in% species_interest)
+#create list for each unique date 
+vu <- list()
+
+for(i in as.character(Date_CT_x)){ #beginning of loop
+
+#filter with the unique value of each date
+temp <- x_meso_carn %>% filter(date == as.Date(i))
+
+# counting for each userID and each specie each time a species has been detected by each userID
+count_species <- temp %>% dplyr::count(determination,User_uid)
+
+#merging with all the User_uids so then the IDs with no detections get NAs
+#it's a bit ugly but I didn't find any other solution
+User_uid <- data.frame("User_uid" = unique(x$User_uid))
+
+#merging
+count_species_all_IDs <- dplyr::right_join(count_species,User_uid, keep = T)#keeping all the values of User_uid
+
+#creating a matrix with all the User_uids and species in columns
+count_table <- data.frame("User_uid" = unique(x_meso_carn$User_uid), "cat" = NA, "Rotfuchs" = NA, "Waschbär" = NA, "Marder" = NA)
+
+#filling up the table sorry for ugly code, didn't find any other solution, sorry :(
+
+for( j in count_table$User_uid) { #start of loop
+  for ( k in species_interest){
+
+select <- count_species_all_IDs %>% dplyr::filter(determination == k, User_uid.y == j)
+
+if(is.null(nrow(select))) 
+  {
+  count_table[which(count_table$User_uid == j),which(colnames(count_table)==k)] <- 0 
+  }
+
+if(nrow(select) > 0)
+  {
+  count_table[which(count_table$User_uid == j),which(colnames(count_table)==k)] <- 1 #binary because we don't need the number of pictures taken in one day
+  }
+  
+  
+} # end of k loop
+} # end of j loop
+
+#ugly but does the work
+count_table[is.na(count_table)] <- 0
+
+#now we fill up in the list with each element the dates 
+vu[[(which(Date_CT_x==i))]] <- count_table
+
+} # end of loop here
+
+#keeping the user_uid values
+User_uid_counts <- vu[[1]]$User_uid
+
+#summing all the values of the list
+Use_x <- Reduce("+", vu)
+
+#replacing the first column because it also got summed
+Use_x$User_uid <- User_uid_counts
+
+#changing the names of the columns in english
+colnames(Use_x) <- c("User_uid", "Cat", "Red_fox", "Raccoon", "Marten")
+
+User_uid_covenv <- stacked_raster_values_and_garden_CT_all_seasons_no_nas$User_uid
+
+Use_x_selected <- Use_x[which(Use_x$User_uid %in% User_uid_covenv),]
+
+return(Use_x_selected)
+
+}
+
+#first season
+Use1_P1_selected <- use_count(OCC1_P1)
+Use2_P1_selected <- use_count(OCC2_P1)
+Use3_P1_selected <- use_count(OCC3_P1)
+Use4_P1_selected <- use_count(OCC4_P1)
+
+#renaming
+Use1_P1_renamed <- Use1_P1_selected %>% rename_with(~paste0(.,'_Week1'), Cat:Marten)
+Use2_P1_renamed <- Use2_P1_selected %>% rename_with(~paste0(.,'_Week2'), Cat:Marten)
+Use3_P1_renamed <- Use3_P1_selected %>% rename_with(~paste0(.,'_Week3'), Cat:Marten)
+Use4_P1_renamed <- Use4_P1_selected %>% rename_with(~paste0(.,'_Week4'), Cat:Marten)
+
+#gather all the CT IDs (some are not present for the weekly occasions)
+All_CT_P1 <- data.frame(User_uid = unique(c(Use1_P1_selected$User_uid, 
+                      Use2_P1_selected$User_uid,
+                      Use3_P1_selected$User_uid,
+                      Use4_P1_selected$User_uid)))
+#merging and reordering
+all_weeks_P1 <- dplyr::left_join(All_CT_P1,Use1_P1_renamed) %>%
+                  left_join(Use2_P1_renamed) %>%
+                  left_join(Use3_P1_renamed) %>% 
+                  left_join(Use4_P1_renamed) %>%
+                  mutate(project_phase = 1) %>%
+                  dplyr::select(User_uid, project_phase, 
+                         Cat_Week1,Cat_Week2,Cat_Week3,Cat_Week4,
+                         Red_fox_Week1,Red_fox_Week2,Red_fox_Week3,Red_fox_Week4,
+                         Raccoon_Week1,Raccoon_Week2,Raccoon_Week3,Raccoon_Week4,
+                         Marten_Week1,Marten_Week2,Marten_Week3,Marten_Week4) %>%
+                  replace(is.na(.), 0)
+
+
+#second season
+Use1_P2_selected <- use_count(OCC1_P2)
+Use2_P2_selected <- use_count(OCC2_P2)
+Use3_P2_selected <- use_count(OCC3_P2)
+Use4_P2_selected <- use_count(OCC4_P2)
+
+#renaming
+Use1_P2_renamed <- Use1_P2_selected %>% rename_with(~paste0(.,'_Week1'), Cat:Marten)
+Use2_P2_renamed <- Use2_P2_selected %>% rename_with(~paste0(.,'_Week2'), Cat:Marten)
+Use3_P2_renamed <- Use3_P2_selected %>% rename_with(~paste0(.,'_Week3'), Cat:Marten)
+Use4_P2_renamed <- Use4_P2_selected %>% rename_with(~paste0(.,'_Week4'), Cat:Marten)
+
+
+#gather all the CT IDs (some are not present for the weekly occasions)
+All_CT_P2 <- data.frame(User_uid = unique(c(Use1_P2_selected$User_uid, 
+                      Use2_P2_selected$User_uid,
+                      Use3_P2_selected$User_uid,
+                      Use4_P2_selected$User_uid)))
+#merging and reordering
+all_weeks_P2 <- dplyr::left_join(All_CT_P2,Use1_P2_renamed) %>%
+                  left_join(Use2_P2_renamed) %>%
+                  left_join(Use3_P2_renamed) %>% 
+                  left_join(Use4_P2_renamed) %>%
+                  mutate(project_phase = 2) %>%
+                  dplyr::select(User_uid, project_phase, 
+                         Cat_Week1,Cat_Week2,Cat_Week3,Cat_Week4,
+                         Red_fox_Week1,Red_fox_Week2,Red_fox_Week3,Red_fox_Week4,
+                         Raccoon_Week1,Raccoon_Week2,Raccoon_Week3,Raccoon_Week4,
+                         Marten_Week1,Marten_Week2,Marten_Week3,Marten_Week4) %>%
+                  replace(is.na(.), 0)
+
+#third season
+Use1_P3_selected <- use_count(OCC1_P3)
+Use2_P3_selected <- use_count(OCC2_P3)
+Use3_P3_selected <- use_count(OCC3_P3)
+Use4_P3_selected <- use_count(OCC4_P3)
+
+#renaming
+Use1_P3_renamed <- Use1_P3_selected %>% rename_with(~paste0(.,'_Week1'), Cat:Marten)
+Use2_P3_renamed <- Use2_P3_selected %>% rename_with(~paste0(.,'_Week2'), Cat:Marten)
+Use3_P3_renamed <- Use3_P3_selected %>% rename_with(~paste0(.,'_Week3'), Cat:Marten)
+Use4_P3_renamed <- Use4_P3_selected %>% rename_with(~paste0(.,'_Week4'), Cat:Marten)
+
+
+#gather all the CT IDs (some are not present for the weekly occasions)
+All_CT_P3 <- data.frame(User_uid = unique(c(Use1_P3_selected$User_uid, 
+                      Use2_P3_selected$User_uid,
+                      Use3_P3_selected$User_uid,
+                      Use4_P3_selected$User_uid)))
+#merging and reordering
+all_weeks_P3 <- dplyr::left_join(All_CT_P3,Use1_P3_renamed) %>%
+                  left_join(Use2_P3_renamed) %>%
+                  left_join(Use3_P3_renamed) %>% 
+                  left_join(Use4_P3_renamed) %>%
+                  mutate(project_phase = 3) %>%
+                  dplyr::select(User_uid, project_phase, 
+                         Cat_Week1,Cat_Week2,Cat_Week3,Cat_Week4,
+                         Red_fox_Week1,Red_fox_Week2,Red_fox_Week3,Red_fox_Week4,
+                         Raccoon_Week1,Raccoon_Week2,Raccoon_Week3,Raccoon_Week4,
+                         Marten_Week1,Marten_Week2,Marten_Week3,Marten_Week4) %>%
+                  replace(is.na(.), 0)
+
+#fourth season
+Use1_P4_selected <- use_count(OCC1_P4)
+Use2_P4_selected <- use_count(OCC2_P4)
+Use3_P4_selected <- use_count(OCC3_P4)
+Use4_P4_selected <- use_count(OCC4_P4)
+
+#renaming
+Use1_P4_renamed <- Use1_P4_selected %>% rename_with(~paste0(.,'_Week1'), Cat:Marten)
+Use2_P4_renamed <- Use2_P4_selected %>% rename_with(~paste0(.,'_Week2'), Cat:Marten)
+Use3_P4_renamed <- Use3_P4_selected %>% rename_with(~paste0(.,'_Week3'), Cat:Marten)
+Use4_P4_renamed <- Use4_P4_selected %>% rename_with(~paste0(.,'_Week4'), Cat:Marten)
+
+
+#gather all the CT IDs (some are not present for the weekly occasions)
+All_CT_P4 <- data.frame(User_uid = unique(c(Use1_P4_selected$User_uid, 
+                      Use2_P4_selected$User_uid,
+                      Use3_P4_selected$User_uid,
+                      Use4_P4_selected$User_uid)))
+#merging and reordering
+all_weeks_P4 <- dplyr::left_join(All_CT_P4,Use1_P4_renamed) %>%
+                  left_join(Use2_P4_renamed) %>%
+                  left_join(Use3_P4_renamed) %>% 
+                  left_join(Use4_P4_renamed) %>%
+                  mutate(project_phase = 4) %>%
+                  dplyr::select(User_uid, project_phase, 
+                         Cat_Week1,Cat_Week2,Cat_Week3,Cat_Week4,
+                         Red_fox_Week1,Red_fox_Week2,Red_fox_Week3,Red_fox_Week4,
+                         Raccoon_Week1,Raccoon_Week2,Raccoon_Week3,Raccoon_Week4,
+                         Marten_Week1,Marten_Week2,Marten_Week3,Marten_Week4) %>%
+                  replace(is.na(.), 0)
+
+#fifth season
+Use1_P5_selected <- use_count(OCC1_P5)
+Use2_P5_selected <- use_count(OCC2_P5)
+Use3_P5_selected <- use_count(OCC3_P5)
+Use4_P5_selected <- use_count(OCC4_P5)
+
+#renaming
+Use1_P5_renamed <- Use1_P5_selected %>% rename_with(~paste0(.,'_Week1'), Cat:Marten)
+Use2_P5_renamed <- Use2_P5_selected %>% rename_with(~paste0(.,'_Week2'), Cat:Marten)
+Use3_P5_renamed <- Use3_P5_selected %>% rename_with(~paste0(.,'_Week3'), Cat:Marten)
+Use4_P5_renamed <- Use4_P5_selected %>% rename_with(~paste0(.,'_Week4'), Cat:Marten)
+
+
+#gather all the CT IDs (some are not present for the weekly occasions)
+All_CT_P5 <- data.frame(User_uid = unique(c(Use1_P5_selected$User_uid, 
+                      Use2_P5_selected$User_uid,
+                      Use3_P5_selected$User_uid,
+                      Use4_P5_selected$User_uid)))
+#merging and reordering
+all_weeks_P5 <- dplyr::left_join(All_CT_P5,Use1_P5_renamed) %>%
+                  left_join(Use2_P5_renamed) %>%
+                  left_join(Use3_P5_renamed) %>% 
+                  left_join(Use4_P5_renamed) %>%
+                  mutate(project_phase = 5) %>%
+                  dplyr::select(User_uid, project_phase, 
+                         Cat_Week1,Cat_Week2,Cat_Week3,Cat_Week4,
+                         Red_fox_Week1,Red_fox_Week2,Red_fox_Week3,Red_fox_Week4,
+                         Raccoon_Week1,Raccoon_Week2,Raccoon_Week3,Raccoon_Week4,
+                         Marten_Week1,Marten_Week2,Marten_Week3,Marten_Week4) %>%
+                  replace(is.na(.), 0)
+
+
+#joining all tables together 
+Use_selected_all_seasons_weekly <- rbind(all_weeks_P1, all_weeks_P2,
+                                  all_weeks_P3, all_weeks_P4,
+                                  all_weeks_P5)
+
+# #saving the result
+saveRDS(Use_selected_all_seasons_weekly, file = here::here("output", "data-proc", "all_seasons", paste0("Use_selected_all_seasons_weekly",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+
+## P1
+We will filter the data to only the season 1, i.e. with dates that are between "2018-10-07" and "2018-11-04"
+```{r}
+#######getting through the camera trap dataset#######
+# Table with  73494 rows (one row per picture of wildlife- unfiltered) and 49 columns,
+# including metadata information about time of picture, grid cell and garden
+# The species can be seen in the column "determination"
+
+# turning the dates into a date format
+CT_all_seasons_new$date <- as.Date(CT_all_seasons_new$date)
+
+#select the data entries between the date limits
+OCC_P1 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[1]][1] & date <= list_date_weekly[[1]][5])
+
+Use_P1_selected <- use_count(OCC_P1)
+
+# #saving the result
+saveRDS(Use_P1_selected, file = here::here("output", "data-proc", "P1", paste0("Use_P1_selected",gsub("-", "_", Sys.Date()),".RDS")))
+```
+
+## P2
+We will filter the data to only the season 1, i.e. with dates that are between "2019-04-01" and "2019-04-28"
+
+```{r}
+# turning the dates into a date format
+CT_all_seasons_new$date <- as.Date(CT_all_seasons_new$date)
+
+#select the data entries between the date limits
+OCC_P2 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[2]][1] & date <= list_date_weekly[[2]][5])
+
+Use_P2_selected <- use_count(OCC_P2)
+
+#saving the result
+saveRDS(Use_P2_selected, file = here::here("output", "data-proc", "P2", paste0("Use_P2_selected",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+## P3
+We will filter the data to only the season 1, i.e. with dates that are between "2019-09-30" and "2019-10-27"
+
+```{r}
+# turning the dates into a date format
+CT_all_seasons_new$date <- as.Date(CT_all_seasons_new$date)
+
+#select the data entries between the date limits
+OCC_P3 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[3]][1] & date <= list_date_weekly[[3]][5])
+
+Use_P3_selected <- use_count(OCC_P3)
+
+#saving the result
+saveRDS(Use_P3_selected, file = here::here("output", "data-proc", "P3", paste0("Use_P3_selected",gsub("-", "_", Sys.Date()),".RDS")))
+```
+
+## P4
+We will filter the data to only the season 1, i.e. with dates that are between "2020-03-30" and "2020-04-26"
+
+```{r}
+# turning the dates into a date format
+CT_all_seasons_new$date <- as.Date(CT_all_seasons_new$date)
+
+#select the data entries between the date limits
+OCC_P4 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[4]][1] & date <= list_date_weekly[[4]][5])
+
+Use_P4_selected <- use_count(OCC_P4)
+
+#saving the result
+saveRDS(Use_P4_selected, file = here::here("output", "data-proc", "P4", paste0("Use_P4_selected",gsub("-", "_", Sys.Date()),".RDS")))
+```
+
+## P5
+We will filter the data to only the season 1, i.e. with dates that are between "2020-09-28" and "2020-10-26"
+
+```{r}
+# turning the dates into a date format
+CT_all_seasons_new$date <- as.Date(CT_all_seasons_new$date)
+
+#select the data entries between the date limits
+OCC_P5 <- CT_all_seasons_new %>% filter(date >= list_date_weekly[[5]][1] & date <= list_date_weekly[[5]][5])
+
+Use_P5_selected <- use_count(OCC_P5)
+
+#saving the result
+saveRDS(Use_P5_selected, file = here::here("output", "data-proc", "P5", paste0("Use_P5_selected",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+## all seasons
+```{r}
+Use_P1_selected_season <- cbind(project_phase = "1",Use_P1_selected)
+Use_P2_selected_season <- cbind(project_phase = "2",Use_P2_selected)
+Use_P3_selected_season <- cbind(project_phase = "3",Use_P3_selected)
+Use_P4_selected_season <- cbind(project_phase = "4",Use_P4_selected)
+Use_P5_selected_season <- cbind(project_phase = "5",Use_P5_selected)
+
+Use_selected_all_seasons <- rbind(Use_P1_selected_season, Use_P2_selected_season,
+                                  Use_P3_selected_season, Use_P4_selected_season,
+                                  Use_P5_selected_season)
+
+#saving the result
+saveRDS(Use_selected_all_seasons, file = here::here("output", "data-proc", "all_seasons", paste0("Use_selected_all_seasons",gsub("-", "_", Sys.Date()),".RDS")))
+```
+
+#detections-non-detections for jSDM
+simply take the use table and turn it into 0-1
+## weekly
+```{r}
+#isolating the columns that we don't want converted by turningthem into character
+Use_selected_all_seasons_weekly$User_uid <- as.character(Use_selected_all_seasons_weekly$User_uid )
+Use_selected_all_seasons_weekly$project_phase <- as.character(Use_selected_all_seasons_weekly$project_phase )
+
+#replacving values that are greater than 1 by 1
+Detection_all_seasons_selected_weekly<- Use_selected_all_seasons_weekly %>% mutate_if(is.numeric, ~1 * (. != 0))
+
+#reconverting in numeric
+Use_selected_all_seasons_weekly$User_uid <- as.numeric(Use_selected_all_seasons_weekly$User_uid )
+Use_selected_all_seasons_weekly$project_phase <- as.numeric(Use_selected_all_seasons_weekly$project_phase )
+
+#reconverting in numeric
+Detection_all_seasons_selected_weekly$User_uid <- as.numeric(Detection_all_seasons_selected_weekly$User_uid )
+Detection_all_seasons_selected_weekly$project_phase <- as.numeric(Detection_all_seasons_selected_weekly$project_phase )
+
+
+#saving the result
+saveRDS(Detection_all_seasons_selected_weekly, file = here::here("output", "data-proc", "P5", paste0("Detection_all_seasons_selected_weekly",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+
+## P1
+```{r}
+#isolating the columns that we don't want converted by turningthem into character
+Use_P1_selected_season$User_uid <- as.character(Use_P1_selected_season$User_uid )
+Use_P1_selected_season$project_phase <- as.character(Use_P1_selected_season$project_phase )
+
+#replacving values that are greater than 1 by 1e
+Detection_P1_selected_season<- Use_P1_selected_season %>% mutate_if(is.numeric, ~1 * (. != 0))
+
+#reconverting in numeric
+Use_P1_selected_season$User_uid <- as.numeric(Use_P1_selected_season$User_uid )
+Use_P1_selected_season$project_phase <- as.numeric(Use_P1_selected_season$project_phase )
+
+#reconverting in numeric
+Detection_P1_selected_season$User_uid <- as.numeric(Detection_P1_selected_season$User_uid )
+Detection_P1_selected_season$project_phase <- as.numeric(Detection_P1_selected_season$project_phase )
+
+
+#saving the result
+saveRDS(Detection_P1_selected_season, file = here::here("output", "data-proc", "P1", paste0("Detection_P1_selected_season",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+## P2
+
+```{r}
+#isolating the columns that we don't want converted by turningthem into character
+Use_P2_selected_season$User_uid <- as.character(Use_P2_selected_season$User_uid )
+Use_P2_selected_season$project_phase <- as.character(Use_P2_selected_season$project_phase )
+
+#replacving values that are greater than 1 by 1e
+Detection_P2_selected_season<- Use_P2_selected_season %>% mutate_if(is.numeric, ~1 * (. != 0))
+
+#reconverting in numeric
+Use_P2_selected_season$User_uid <- as.numeric(Use_P2_selected_season$User_uid )
+Use_P2_selected_season$project_phase <- as.numeric(Use_P2_selected_season$project_phase )
+
+#reconverting in numeric
+Detection_P2_selected_season$User_uid <- as.numeric(Detection_P2_selected_season$User_uid )
+Detection_P2_selected_season$project_phase <- as.numeric(Detection_P2_selected_season$project_phase )
+
+
+
+#saving the result
+saveRDS(Detection_P2_selected_season, file = here::here("output", "data-proc", "P2", paste0("Detection_P2_selected_season",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+## P3
+
+```{r}
+#isolating the columns that we don't want converted by turningthem into character
+Use_P3_selected_season$User_uid <- as.character(Use_P3_selected_season$User_uid )
+Use_P3_selected_season$project_phase <- as.character(Use_P3_selected_season$project_phase )
+
+#replacving values that are greater than 1 by 1e
+Detection_P3_selected_season<- Use_P3_selected_season %>% mutate_if(is.numeric, ~1 * (. != 0))
+
+#reconverting in numeric
+Use_P3_selected_season$User_uid <- as.numeric(Use_P3_selected_season$User_uid )
+Use_P3_selected_season$project_phase <- as.numeric(Use_P3_selected_season$project_phase )
+
+#reconverting in numeric
+Detection_P3_selected_season$User_uid <- as.numeric(Detection_P3_selected_season$User_uid )
+Detection_P3_selected_season$project_phase <- as.numeric(Detection_P3_selected_season$project_phase )
+
+
+
+#saving the result
+saveRDS(Detection_P3_selected_season, file = here::here("output", "data-proc", "P3", paste0("Detection_P3_selected_season",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+## P4
+
+```{r}
+#isolating the columns that we don't want converted by turningthem into character
+Use_P4_selected_season$User_uid <- as.character(Use_P4_selected_season$User_uid )
+Use_P4_selected_season$project_phase <- as.character(Use_P4_selected_season$project_phase )
+
+#replacving values that are greater than 1 by 1e
+Detection_P4_selected_season<- Use_P4_selected_season %>% mutate_if(is.numeric, ~1 * (. != 0))
+
+#reconverting in numeric
+Use_P4_selected_season$User_uid <- as.numeric(Use_P4_selected_season$User_uid )
+Use_P4_selected_season$project_phase <- as.numeric(Use_P4_selected_season$project_phase )
+
+#reconverting in numeric
+Detection_P4_selected_season$User_uid <- as.numeric(Detection_P4_selected_season$User_uid )
+Detection_P4_selected_season$project_phase <- as.numeric(Detection_P4_selected_season$project_phase )
+
+
+#saving the result
+saveRDS(Detection_P4_selected_season, file = here::here("output", "data-proc", "P4", paste0("Detection_P4_selected_season",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+## P5
+
+```{r}
+#isolating the columns that we don't want converted by turningthem into character
+Use_P5_selected_season$User_uid <- as.character(Use_P5_selected_season$User_uid )
+Use_P5_selected_season$project_phase <- as.character(Use_P5_selected_season$project_phase )
+
+#replacving values that are greater than 1 by 1
+Detection_P5_selected_season<- Use_P5_selected_season %>% mutate_if(is.numeric, ~1 * (. != 0))
+
+#reconverting in numeric
+Use_P5_selected_season$User_uid <- as.numeric(Use_P5_selected_season$User_uid )
+Use_P5_selected_season$project_phase <- as.numeric(Use_P5_selected_season$project_phase )
+
+#reconverting in numeric
+Detection_P5_selected_season$User_uid <- as.numeric(Detection_P5_selected_season$User_uid )
+Detection_P5_selected_season$project_phase <- as.numeric(Detection_P5_selected_season$project_phase )
+
+
+#saving the result
+saveRDS(Detection_P5_selected_season, file = here::here("output", "data-proc", "P5", paste0("Detection_P5_selected_season",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+
+## all seasons
+```{r}
+Detection_selected_all_seasons <- rbind(Detection_P1_selected_season, Detection_P2_selected_season,
+                                  Detection_P3_selected_season, Detection_P4_selected_season,
+                                  Detection_P5_selected_season)
+
+
+
+#saving the result
+saveRDS(Detection_selected_all_seasons, file = here::here("output", "data-proc", "all_seasons", paste0("Detection_selected_all_seasons",gsub("-", "_", Sys.Date()),".RDS")))
+```
+
+## filtering the cov env table so it has the same ids as the detection histories and use history
+```{r}
+length(unique(stacked_raster_values_and_garden_CT_all_seasons_no_nas$User_uid))
+#693
+
+length(unique(Use_selected_all_seasons$User_uid))#669
+length(Use_selected_all_seasons$User_uid)#670 duplicated !
+
+#weekly
+length(unique(Use_selected_all_seasons_weekly$User_uid))#669
+length(Use_selected_all_seasons_weekly$User_uid)#670 duplicated !
+
+
+#detection table
+length(unique(Detection_selected_all_seasons$User_uid))#669
+length((Detection_selected_all_seasons$User_uid))#670 duplicated ! 
+
+#weekly
+length(unique(Detection_all_seasons_selected_weekly$User_uid))#669
+length((Detection_all_seasons_selected_weekly$User_uid))#670 duplicated ! 
+
+
+#the problem comes from a user that made a mistake in the dates during the fourth season
+Detection_selected_all_seasons %>% janitor::get_dupes(User_uid)
+Detection_all_seasons_selected_weekly %>% janitor::get_dupes(User_uid)
+Use_selected_all_seasons %>% janitor::get_dupes(User_uid)
+Use_selected_all_seasons_weekly %>% janitor::get_dupes(User_uid)
+
+
+#isolating the duplcated Ids
+Use_duplicated <- Use_selected_all_seasons %>% janitor::get_dupes(User_uid)
+Detection_duplicated <- Detection_selected_all_seasons %>% janitor::get_dupes(User_uid)
+
+Use_weekly_duplicated <- Use_selected_all_seasons_weekly %>% janitor::get_dupes(User_uid)
+Detection_weekly_duplicated <- Detection_all_seasons_selected_weekly %>% janitor::get_dupes(User_uid)
+
+
+#operations
+#keeping the ID of the duplicated ones
+User_uid_duplicated <- unique(Use_duplicated$User_uid)
+
+#taking out the rows with this ID
+Use_selected_all_seasons_no_dup <- filter(Use_selected_all_seasons,!(User_uid ==  User_uid_duplicated))
+Detection_selected_all_seasons_no_dup <- filter(Detection_selected_all_seasons,!(User_uid ==  User_uid_duplicated))
+
+Use_selected_all_seasons_no_dup_weekly <- filter(Use_selected_all_seasons_weekly,!(User_uid ==  User_uid_duplicated))
+Detection_selected_all_seasons_no_dup_weekly <- filter(Detection_all_seasons_selected_weekly,!(User_uid ==  User_uid_duplicated))
+
+
+#now we correct the duplicated rows
+project_phase_duplicated <- 4
+
+#creating one line out of 2
+Use_duplicated$project_phase<- as.numeric(as.character(Use_duplicated$project_phase))
+
+#we sum the values of detection and use
+unique_row_use <- colSums(Use_duplicated)
+unique_row_detection <- colSums(Detection_duplicated)
+
+unique_row_use_weekly <- colSums(Use_weekly_duplicated)
+unique_row_detection_weekly <- colSums(Detection_weekly_duplicated)
+
+#turning into binary for the det/non-det
+unique_row_detection[unique_row_detection > 0] <- 1 
+unique_row_detection_weekly[unique_row_detection_weekly > 0 ] <- 1
+
+#putting back the right values of User_uid, project_phase and taking out the column"dupe_count"
+#season
+unique_row_use['project_phase'] <- project_phase_duplicated
+unique_row_detection['project_phase'] <- project_phase_duplicated
+
+unique_row_use_weekly['project_phase'] <- project_phase_duplicated
+unique_row_detection_weekly['project_phase'] <- project_phase_duplicated
+
+#User_uid
+unique_row_use['User_uid'] <- User_uid_duplicated
+unique_row_detection['User_uid'] <- User_uid_duplicated
+
+unique_row_use_weekly['User_uid'] <- User_uid_duplicated
+unique_row_detection_weekly['User_uid'] <- User_uid_duplicated
+
+
+#too tired to figure out now; taking out the dupe_count value
+unique_row_use <- unique_row_use[-2]
+unique_row_detection<- unique_row_detection[-2]
+
+unique_row_use_weekly <- unique_row_use_weekly[-2]
+unique_row_detection_weekly <- unique_row_detection_weekly[-2]
+
+
+#rearranging the columns 
+unique_row_use_rearranged <- c(unique_row_use['project_phase'],unique_row_use[-2])
+unique_row_detection_rearranged <- c(unique_row_detection['project_phase'],unique_row_detection[-2])
+
+#putting back the extra row
+Use_selected_all_seasons_no_dup <- rbind(Use_selected_all_seasons_no_dup, unique_row_use_rearranged)
+Detection_selected_all_seasons_no_dup <- rbind(Detection_selected_all_seasons_no_dup, unique_row_detection_rearranged)
+
+Use_selected_all_seasons_no_dup_weekly <- rbind(Use_selected_all_seasons_no_dup_weekly, unique_row_use_weekly)
+Detection_selected_all_seasons_no_dup_weekly <- rbind(Detection_selected_all_seasons_no_dup_weekly, unique_row_detection_weekly)
+
+
+#reordering the CTs according to their IDs
+Use_selected_all_seasons_no_dup_ordered <- arrange(Use_selected_all_seasons_no_dup, User_uid)
+Detection_selected_all_seasons_no_dup_ordered <- arrange(Detection_selected_all_seasons_no_dup, User_uid)
+
+Use_selected_all_seasons_no_dup_ordered_weekly <- arrange(Use_selected_all_seasons_no_dup_weekly, User_uid)
+Detection_selected_all_seasons_no_dup_ordered_weekly <- arrange(Detection_selected_all_seasons_no_dup_weekly, User_uid)
+
+
+#24 CTS difference
+stacked_raster_values_and_garden_CT_all_seasons_no_nas_no_dup <-stacked_raster_values_and_garden_CT_all_seasons_no_nas[which(stacked_raster_values_and_garden_CT_all_seasons_no_nas$User_uid %in% Use_selected_all_seasons_no_dup_ordered$User_uid), ] 
+
+#last table
+stacked_raster_values_and_garden_CT_all_seasons_no_nas_no_dup_ordered <- arrange(stacked_raster_values_and_garden_CT_all_seasons_no_nas_no_dup, User_uid)
+
+#last rearrangement 
+Detection_selected_all_seasons_no_dup_ordered <- Detection_selected_all_seasons_no_dup_ordered %>% dplyr::relocate(project_phase)
+
+Use_selected_all_seasons_no_dup_ordered_weekly <- Use_selected_all_seasons_no_dup_ordered_weekly %>% dplyr::relocate(project_phase)
+
+#last thing
+Use_selected_all_seasons_no_dup_ordered$project_phase <- as.numeric(as.character(Use_selected_all_seasons_no_dup_ordered$project_phase))
+
+#renaming the covs !!
+
+names(stacked_raster_values_and_garden_CT_all_seasons_no_nas_no_dup_ordered) <- c("User_uid","project_phase","garden_type",
+                      "garden_size","Local_tree_cover","fence_height","compost","Lat", "Long",
+                      "pop_100","dist_water_100", "imperv_100", "noise_100", "tree_cover_100", "distance_border",
+                      "inside")
+
+#little test for correlation 
+cor(stacked_raster_values_and_garden_CT_all_seasons_no_nas_no_dup_ordered[,c(4:6,10:15)], method = c("pearson", "kendall", "spearman"))
+
+#saving the result
+saveRDS(stacked_raster_values_and_garden_CT_all_seasons_no_nas_no_dup_ordered, file = here::here("output", "data-proc", "all_seasons", paste0("stacked_raster_values_and_garden_CT_all_seasons_no_nas_no_dup_ordered",gsub("-", "_", Sys.Date()),".RDS")))
+
+saveRDS(Use_selected_all_seasons_no_dup_ordered, file = here::here("output", "data-proc", "all_seasons", paste0("Use_selected_all_seasons_no_dup_ordered",gsub("-", "_", Sys.Date()),".RDS")))
+
+saveRDS(Detection_selected_all_seasons_no_dup_ordered, file = here::here("output", "data-proc", "all_seasons", paste0("Detection_selected_all_seasons_no_dup_ordered",gsub("-", "_", Sys.Date()),".RDS")))
+
+saveRDS(Use_selected_all_seasons_no_dup_ordered_weekly, file = here::here("output", "data-proc", "all_seasons", paste0("Use_selected_all_seasons_no_dup_ordered_weekly",gsub("-", "_", Sys.Date()),".RDS")))
+
+saveRDS(Detection_selected_all_seasons_no_dup_ordered_weekly, file = here::here("output", "data-proc", "all_seasons", paste0("Detection_selected_all_seasons_no_dup_ordered_weekly",gsub("-", "_", Sys.Date()),".RDS")))
+
+```
+
+
+***
+
+<details><summary>Session Info</summary>
+
+```{r sessionInfo}
+## DO NOT REMOVE!
+## We store the settings of your computer and the current versions of the
+## packages used to allow for reproducibility
+Sys.time()
+#git2r::repository() ## uncomment if you are using GitHub
+sessionInfo()
+```
+
+</details>
