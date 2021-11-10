@@ -5,6 +5,6 @@
 <!-- badges: start -->
 <!-- badges: end -->
 
-The project countains scripts and data to run analyses of urban mesocarnivore analyses, based on camera-trap data in Berlin. 
+The project contains scripts and data to run analyses of urban mesocarnivore analyses, based on camera-trap data in Berlin. The doi will be provided on publication
 
 
