@@ -3,4 +3,4 @@
 
 The project contains scripts and data to run analyses of urban mesocarnivore analyses, based on camera-trap data in Berlin.
 
-The data is stored with the dryad DOI [10.5061/dryad.hdr7sqvjt](https:// doi:10.5061/dryad.hdr7sqvjt).
+The data is stored with the dryad DOI [10.5061/dryad.hdr7sqvjt](https://doi:10.5061/dryad.hdr7sqvjt).
