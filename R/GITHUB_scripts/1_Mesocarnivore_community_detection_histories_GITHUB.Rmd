@@ -47,14 +47,14 @@ package.list=c("camtrapR",
                "plyr",
                "raster",
                "readxl",
-               #"rgdal",
-               #"rgeos",
-               #"rjags",
+               "rgdal",
+               "rgeos",
+               "rjags",
                "rlecuyer",
-               #"sf",
+               "sf",
                "showtext",
                "snowfall",
-               #"sp",
+               "sp",
                "stringr",
                "tidyverse"
                )
@@ -82,10 +82,10 @@ plots_wd <- file.path(WorkDir, "plots/temp")
 ```{r data}
 ##Camera Traps detection histories
 #loading the environmental variables and using only the user IDs that are within the cov table
-stacked_raster_values_and_garden_CT_all_seasons_no_nas <- readRDS( here::here("output", "data-proc", "dryad", paste0("Louvrier_2021_JAE_UrbanMesocarnivores_Covariates_cameras_Dryad2021_01_11.RDS")))
+stacked_raster_values_and_garden_CT_all_seasons_no_nas <- readRDS( here::here("data", "detections_all_species", paste0("Louvrier_2021_JAE_UrbanMesocarnivores_Covariates_cameras_Dryad2021_10_29.RDS")))
 
 #already formated and filtered data with a delta of 30 mins
-CT_act_date_formated <- readRDS(here::here("output", "data-proc", "dryad","Louvrier_2021_JAE_UrbanMesocarnivores_Camera_detections_Dryad2021_11_05.RDS"))
+CT_act_date_formated <- readRDS(here::here("output", "detections_all_species","Louvrier_2021_JAE_UrbanMesocarnivores_Camera_detections_Dryad2021_01_11.RDS"))
 
 
 ```   
