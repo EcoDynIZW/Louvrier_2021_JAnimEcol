@@ -1,4 +1,4 @@
-# Louvrier et al. 2021 *Journal of Animal Ecology*
+# Louvrier et al. (2021) *Journal of Animal Ecology*
 [![DOI](https://zenodo.org/badge/426193805.svg)](https://zenodo.org/badge/latestdoi/426193805)
 
 > **Julie L.P Louvrier**, **Aimara Planillo**, **Milena Stillfried**, **Robert Hagen**, **Konstantin Börner**, Sophia Kimmig, Sylvia Ortmann, Anke Schumann, Miriam Brandt & **Stephanie Kramer-Schadt** (2021), Spatiotemporal interactions of a novel mesocarnivore community in an urban environment before and during SARS-CoV-2 lockdown. *Journal of Animal Ecology* 91(2), 367–380. DOI: [10.1111/1365-2656.13635](https://doi.org/10.1111/1365-2656.13635)
